@@ -4,11 +4,12 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 
 type ProductImage = { url: string | null };
+
 export type ProductRow = {
   id: string;
   title: string;
   price_cents: number;
-  status: "available" | "sold" | "hidden";
+  status: "available" | "reserved" | "sold" | "hidden";
   product_images?: ProductImage[] | null;
 };
 
@@ -16,7 +17,13 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
   const [tab, setTab] = useState<"available" | "sold">("available");
 
   const filtered = useMemo(() => {
-    return products.filter((p) => p.status === tab);
+    if (tab === "available") {
+      return products.filter(
+        (p) => p.status === "available" || p.status === "reserved"
+      );
+    }
+
+    return products.filter((p) => p.status === "sold");
   }, [products, tab]);
 
   return (
@@ -52,6 +59,7 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
               const imgUrl = p.product_images?.[0]?.url ?? null;
               const price = (p.price_cents / 100).toFixed(2);
               const isSold = p.status === "sold";
+              const isReserved = p.status === "reserved";
 
               return (
                 <Link key={p.id} href={`/product/${p.id}`} className="card">
@@ -73,7 +81,8 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
                       </div>
                     )}
 
-                    {isSold ? <div className="soldOverlay">SOLD</div> : null}
+                    {isSold && <div className="soldOverlay">SOLD</div>}
+                    {isReserved && <div className="soldOverlay">RESERVED</div>}
                   </div>
 
                   <div style={{ marginTop: 10 }}>
@@ -83,7 +92,12 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
 
                     <div className="badge">
                       <span className="pinkDot" />
-                      {isSold ? "sold" : "available"} • one-of-one
+                      {isSold
+                        ? "sold"
+                        : isReserved
+                        ? "reserved"
+                        : "available"}{" "}
+                      • one-of-one
                     </div>
 
                     <div style={{ marginTop: 8, fontFamily: "monospace" }}>

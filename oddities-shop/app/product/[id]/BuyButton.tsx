@@ -2,63 +2,49 @@
 
 import { useState } from "react";
 
-export default function BuyButton({
-  productId,
-  title,
-  price_cents,
-  disabled,
-}: {
-  productId: string;
-  title: string;
-  price_cents: number;
-  disabled: boolean;
-}) {
+export default function BuyButton({ productId }: { productId: string }) {
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
-  async function go() {
-    setErr(null);
+  async function handleBuy() {
+    if (loading) return;
+    setLoading(true);
 
     try {
-      setLoading(true);
-
       const res = await fetch("/api/checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId, title, price_cents }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          productId, // 🔥 THIS IS THE KEY FIX
+        }),
       });
 
-      const data = await res.json().catch(() => null);
+      const json = await res.json();
 
       if (!res.ok) {
-        setErr(data?.error ?? "Checkout failed");
+        alert(json?.error ?? "Checkout failed");
+        setLoading(false);
         return;
       }
 
-      if (data?.url) {
-        window.location.href = data.url;
-        return;
-      }
-
-      setErr("Square did not return a checkout URL.");
-    } catch (e: any) {
-      setErr(e?.message ?? "Network error");
-    } finally {
+      // Redirect to Square checkout
+      window.location.href = json.url;
+    } catch (err) {
+      console.error("Checkout error:", err);
+      alert("Something went wrong starting checkout.");
       setLoading(false);
     }
   }
 
   return (
-    <>
-      <button className="buyBtn" disabled={disabled || loading} onClick={go}>
-        {disabled ? "Sold out" : loading ? "Loading…" : "Buy now"}
-      </button>
-
-      {err ? (
-        <p style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>
-          {err}
-        </p>
-      ) : null}
-    </>
+    <button
+      onClick={handleBuy}
+      disabled={loading}
+      className="buyBtn"
+      style={{ opacity: loading ? 0.6 : 1 }}
+    >
+      {loading ? "Redirecting…" : "Buy"}
+    </button>
   );
 }

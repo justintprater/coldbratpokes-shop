@@ -18,12 +18,12 @@ export async function POST(req: Request) {
 
   if (!key || !notificationUrl) {
     return NextResponse.json(
-      { error: "Missing SQUARE_WEBHOOK_SIGNATURE_KEY or SQUARE_WEBHOOK_NOTIFICATION_URL" },
+      { error: "Missing webhook env vars" },
       { status: 500 }
     );
   }
 
-  // Square signs: base64( HMAC_SHA256(key, notificationUrl + body) )
+  // Verify signature
   const expected = crypto
     .createHmac("sha256", key)
     .update(notificationUrl + body)
@@ -33,7 +33,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  // Signature verified ✅
   let event: any;
   try {
     event = JSON.parse(body);
@@ -41,33 +40,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // We care about payment updates completing
   const payment = event?.data?.object?.payment;
   const paymentStatus = payment?.status;
   const paymentId = payment?.id as string | undefined;
   const squareOrderId = payment?.order_id as string | undefined;
 
-  // Always return 200 quickly if it’s not what we care about
-  if (!payment || !paymentId || !squareOrderId) {
+  // Ignore events we don't care about
+  if (!payment || paymentStatus !== "COMPLETED" || !squareOrderId) {
     return NextResponse.json({ ok: true });
   }
 
-  if (paymentStatus !== "COMPLETED") {
-    return NextResponse.json({ ok: true });
-  }
-
-  // Find our order by Square order id (we saved it from payment_link.order_id)
-  const { data: order, error: findErr } = await supabaseAdmin
+  // Find our order
+  const { data: order } = await supabaseAdmin
     .from("orders")
-    .select("id, product_id, status")
+    .select("id, product_id")
     .eq("square_order_id", squareOrderId)
     .single();
 
-  if (findErr || !order) {
-    return NextResponse.json({ ok: true }); // don’t error-loop Square
+  if (!order) {
+    return NextResponse.json({ ok: true });
   }
 
-  // Mark order paid + store payment id
+  // Mark order paid
   await supabaseAdmin
     .from("orders")
     .update({
@@ -76,12 +70,15 @@ export async function POST(req: Request) {
     })
     .eq("id", order.id);
 
-  // Mark product sold (only if it’s currently available)
+  // 🔑 THIS IS THE IMPORTANT FIX
+  // Mark product sold no matter what state it was in
   await supabaseAdmin
     .from("products")
-    .update({ status: "sold" })
-    .eq("id", order.product_id)
-    .eq("status", "available");
+    .update({
+      status: "sold",
+      reserved_until: null,
+    })
+    .eq("id", order.product_id);
 
   return NextResponse.json({ ok: true });
 }

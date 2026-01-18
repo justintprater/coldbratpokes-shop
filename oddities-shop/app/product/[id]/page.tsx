@@ -2,14 +2,13 @@ import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 import BuyButton from "./BuyButton";
 
-
 type ProductImage = { url: string | null };
 
 type ProductRow = {
   id: string;
   title: string;
   price_cents: number;
-  status: "available" | "sold" | "hidden";
+  status: "available" | "reserved" | "sold" | "hidden";
   description: string | null;
   product_images?: ProductImage[] | null;
 };
@@ -56,7 +55,9 @@ export default async function ProductPage({
         <Link href="/" style={{ color: "var(--muted)" }}>
           ← Back
         </Link>
-        <p style={{ marginTop: 16, color: "var(--muted)" }}>Product not found.</p>
+        <p style={{ marginTop: 16, color: "var(--muted)" }}>
+          Product not found.
+        </p>
         {error ? (
           <pre style={{ whiteSpace: "pre-wrap" }}>
             {JSON.stringify({ id, error }, null, 2)}
@@ -72,6 +73,9 @@ export default async function ProductPage({
     .map((x) => x.url)
     .filter((u): u is string => Boolean(u));
   const mainImg = images[0];
+
+  const isSold = product.status === "sold";
+  const isReserved = product.status === "reserved";
 
   return (
     <main className="container">
@@ -97,7 +101,8 @@ export default async function ProductPage({
             </div>
           )}
 
-          {product.status === "sold" ? <div className="soldOverlay">SOLD</div> : null}
+          {isSold && <div className="soldOverlay">SOLD</div>}
+          {isReserved && <div className="soldOverlay">RESERVED</div>}
         </div>
 
         <div>
@@ -106,7 +111,12 @@ export default async function ProductPage({
           <div className="productMeta">
             <span className="pinkDot" />
             <span style={{ color: "var(--muted)" }}>
-              {product.status === "sold" ? "sold" : "available"} • one-of-one
+              {isSold
+                ? "sold"
+                : isReserved
+                ? "reserved"
+                : "available"}{" "}
+              • one-of-one
             </span>
           </div>
 
@@ -120,13 +130,14 @@ export default async function ProductPage({
             </p>
           )}
 
-          <BuyButton
-            productId={product.id}
-            title={product.title}
-            price_cents={product.price_cents}
-            disabled={product.status === "sold"}
-/>
-
+          {/* Buy button */}
+          {!isSold && !isReserved ? (
+            <BuyButton productId={product.id} />
+          ) : (
+            <button className="buyBtn" disabled>
+              {isSold ? "Sold" : "Reserved"}
+            </button>
+          )}
         </div>
       </div>
     </main>

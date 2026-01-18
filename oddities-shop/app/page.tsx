@@ -1,10 +1,25 @@
-import { supabase } from "../lib/supabaseClient";
+import { supabaseServer } from "../lib/supabaseServer";
 import ShopTabs, { type ProductRow } from "./ShopTabs";
 
-type ProductImage = { url: string | null };
-
 export default async function Home() {
-  const { data, error } = await supabase
+  /**
+   * 🔁 AUTO-RELEASE EXPIRED RESERVATIONS
+   * If reserved_until is in the past, make it available again.
+   * This runs safely on every page load.
+   */
+  await supabaseServer
+    .from("products")
+    .update({
+      status: "available",
+      reserved_until: null,
+    })
+    .eq("status", "reserved")
+    .lt("reserved_until", new Date().toISOString());
+
+  /**
+   * 🛒 FETCH PRODUCTS
+   */
+  const { data, error } = await supabaseServer
     .from("products")
     .select(
       `
@@ -20,20 +35,10 @@ export default async function Home() {
 
   if (error) {
     return (
-      <>
-        <header className="hero">
-          <h1 className="brandTitle">ColdBratPokes x Lalam0e</h1>
-          <p className="brandSub">Oddities • Engravings • Apparel • Print</p>
-        </header>
-        <main className="shopShell">
-          <div className="container">
-            <p style={{ color: "var(--muted)" }}>Failed to load products.</p>
-            <pre style={{ whiteSpace: "pre-wrap" }}>
-              {JSON.stringify(error, null, 2)}
-            </pre>
-          </div>
-        </main>
-      </>
+      <main style={{ padding: 40, color: "white" }}>
+        <h1>Failed to load products</h1>
+        <pre>{JSON.stringify(error, null, 2)}</pre>
+      </main>
     );
   }
 
@@ -43,7 +48,7 @@ export default async function Home() {
     <>
       <header className="hero">
         <h1 className="brandTitle">ColdBratPokes x Lalam0e</h1>
-        <p className="brandSub">Oddities • Engravings • Apparel • Print</p>
+        <p className="brandSub">Oddities • Engravings • Apparel • Prints</p>
       </header>
 
       <main className="shopShell">
