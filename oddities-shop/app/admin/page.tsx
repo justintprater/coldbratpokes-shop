@@ -4,26 +4,12 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import AdminProductTable from "./product-table";
 
-const ADMIN_EMAIL = "HER_EMAIL_HERE";
-
 export default function AdminPage() {
-  const [loading, setLoading] = useState(true);
-  const [authorized, setAuthorized] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function init() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user || user.email !== ADMIN_EMAIL) {
-        window.location.href = "/";
-        return;
-      }
-
-      setAuthorized(true);
-
+    async function loadProducts() {
       const { data, error } = await supabase
         .from("products")
         .select("*")
@@ -36,11 +22,10 @@ export default function AdminPage() {
       setLoading(false);
     }
 
-    init();
+    loadProducts();
   }, []);
 
   if (loading) return <p style={{ padding: 24 }}>Loading…</p>;
-  if (!authorized) return null;
 
   return (
     <div style={{ padding: 24 }}>
