@@ -1,6 +1,6 @@
-"use client";
-
 import { useState } from "react";
+
+const ADMIN_UPLOAD_PASSWORD = "CHANGE_ME";
 
 export default function UploadPortalPage() {
   const [password, setPassword] = useState("");
@@ -8,7 +8,7 @@ export default function UploadPortalPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
     setMessage("");
@@ -16,24 +16,27 @@ export default function UploadPortalPage() {
     const formData = new FormData(e.currentTarget);
     formData.append("password", password);
 
-    const res = await fetch("/api/admin/create-product", {
-      method: "POST",
-      body: formData,
-    });
+    try {
+      const res = await fetch("/api/admin/create-product", {
+        method: "POST",
+        body: formData,
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!res.ok) {
-      setMessage(data.error || "Upload failed");
-    } else {
-      setMessage("✅ Product uploaded successfully");
-      e.currentTarget.reset();
+      if (!res.ok) {
+        setMessage(data.error || "Upload failed");
+      } else {
+        setMessage("✅ Product uploaded successfully");
+        e.currentTarget.reset();
+      }
+    } catch {
+      setMessage("Upload failed");
     }
 
     setLoading(false);
   }
 
-  // PASSWORD GATE
   if (!authorized) {
     return (
       <div style={{ padding: 40, maxWidth: 400 }}>
@@ -42,15 +45,19 @@ export default function UploadPortalPage() {
 
         <input
           type="password"
-          placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           style={{ width: "100%", padding: 8, marginBottom: 12 }}
         />
 
         <button
-          onClick={() => setAuthorized(true)}
-          style={{ padding: "8px 16px" }}
+          onClick={() => {
+            if (password === ADMIN_UPLOAD_PASSWORD) {
+              setAuthorized(true);
+            } else {
+              alert("Incorrect password");
+            }
+          }}
         >
           Enter
         </button>
@@ -58,7 +65,6 @@ export default function UploadPortalPage() {
     );
   }
 
-  // UPLOAD FORM
   return (
     <div style={{ padding: 40, maxWidth: 500 }}>
       <h1>Upload Product</h1>
@@ -81,7 +87,6 @@ export default function UploadPortalPage() {
           name="price"
           type="number"
           step="0.01"
-          placeholder="Price"
           required
           style={{ width: "100%", padding: 8, marginBottom: 12 }}
         />
@@ -96,7 +101,7 @@ export default function UploadPortalPage() {
 
         <br />
 
-        <button disabled={loading} style={{ padding: "8px 16px" }}>
+        <button disabled={loading}>
           {loading ? "Uploading…" : "Publish"}
         </button>
       </form>
