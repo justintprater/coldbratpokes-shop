@@ -24,19 +24,22 @@ export default function UploadPortalPage() {
 
       const data = await res.json();
 
-      if (!res.ok) {
-        setMessage(data.error || "Upload failed");
-      } else {
+      // ✅ TRUST API RESPONSE, NOT HTTP EDGE CASES
+      if (data?.success) {
         setMessage("✅ Product uploaded successfully");
         e.currentTarget.reset();
+      } else {
+        setMessage(data?.error || "Upload failed");
       }
-    } catch {
+    } catch (err) {
+      console.error(err);
       setMessage("Upload failed");
     }
 
     setLoading(false);
   }
 
+  // 🔐 PASSWORD GATE
   if (!authorized) {
     return (
       <div style={{ padding: 40, maxWidth: 400 }}>
@@ -65,6 +68,7 @@ export default function UploadPortalPage() {
     );
   }
 
+  // 📦 UPLOAD FORM
   return (
     <div style={{ padding: 40, maxWidth: 500 }}>
       <h1>Upload Product</h1>

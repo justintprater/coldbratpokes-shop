@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
-    // 1️⃣ CREATE PRODUCT (NO IMAGE HERE)
+    // 1️⃣ INSERT PRODUCT (NO IMAGE COLUMN)
     const { data: product, error: productError } = await supabase
       .from("products")
       .insert({
@@ -47,11 +47,11 @@ export async function POST(req: Request) {
       .select()
       .single();
 
-    if (productError) {
-      console.error(productError);
+    if (productError || !product) {
+      console.error("PRODUCT INSERT ERROR:", productError);
       return NextResponse.json(
         { error: "Failed to create product" },
-        { status: 200 }
+        { status: 500 }
       );
     }
 
@@ -61,13 +61,16 @@ export async function POST(req: Request) {
 
     const { error: uploadError } = await supabase.storage
       .from("product-images")
-      .upload(filePath, image, { contentType: image.type });
+      .upload(filePath, image, {
+        contentType: image.type,
+        upsert: false,
+      });
 
     if (uploadError) {
-      console.error(uploadError);
+      console.error("UPLOAD ERROR:", uploadError);
       return NextResponse.json(
         { error: "Image upload failed" },
-        { status: 200 }
+        { status: 500 }
       );
     }
 
@@ -88,17 +91,17 @@ export async function POST(req: Request) {
       });
 
     if (imageInsertError) {
-      console.error(imageInsertError);
+      console.error("IMAGE INSERT ERROR:", imageInsertError);
       return NextResponse.json(
         { error: "Failed to save image" },
-        { status: 200 }
+        { status: 500 }
       );
     }
 
-    // ✅ DONE
-    return NextResponse.json({ success: true, debug: "Reached end of API successfully" });
+    // ✅ SUCCESS
+    return NextResponse.json({ success: true });
   } catch (err) {
-    console.error(err);
+    console.error("SERVER ERROR:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
