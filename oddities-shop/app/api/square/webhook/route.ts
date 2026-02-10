@@ -32,19 +32,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // Verify Square signature
-  const expected = crypto
-    .createHmac("sha256", key)
-    .update(notificationUrl + body)
-    .digest("base64");
-
-    console.log("SQUARE WEBHOOK DEBUG", {
-  signature,
-  expected,
-  notificationUrl,
-  hasKey: Boolean(key),
-  keyLength: key?.length,
-});
 
   if (!signature || !timingSafeEqual(signature, expected)) {
     return NextResponse.json(

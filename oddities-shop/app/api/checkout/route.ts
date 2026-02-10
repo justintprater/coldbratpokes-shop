@@ -1,3 +1,6 @@
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -6,12 +9,23 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Sandbox now, switch later when you go live
 const SQUARE_BASE_URL = "https://connect.squareupsandbox.com";
-// prod later: https://connect.squareup.com
+// production: https://connect.squareup.com
 
 export async function POST(req: NextRequest) {
   try {
-    const { productId, fulfillment } = await req.json();
+    const body = await req.json();
+    const productId = body?.productId;
+    const fulfillment =
+      body?.fulfillment === "pickup" ? "pickup" : "shipping";
+
+    if (!productId) {
+      return NextResponse.json(
+        { error: "Missing productId" },
+        { status: 400 }
+      );
+    }
 
     const { data: product } = await supabase
       .from("products")
@@ -23,7 +37,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unavailable" }, { status: 400 });
     }
 
-    // Reserve product
+    // Reserve product for 15 minutes
     await supabase
       .from("products")
       .update({
@@ -32,8 +46,8 @@ export async function POST(req: NextRequest) {
       })
       .eq("id", product.id);
 
-    // Create order
-    const { data: order } = await supabase
+    // Create internal order
+    const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
         product_id: product.id,
@@ -43,6 +57,11 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
 
+    if (orderError || !order) {
+      throw new Error("Failed to create order");
+    }
+
+    // Create Square payment link
     const squareRes = await fetch(
       `${SQUARE_BASE_URL}/v2/online-checkout/payment-links`,
       {
@@ -75,26 +94,25 @@ export async function POST(req: NextRequest) {
 
     if (!squareRes.ok) {
       const err = await squareRes.text();
-      throw new Error(err);
+      throw new Error(`Square error: ${err}`);
     }
 
     const squareData = await squareRes.json();
+    const paymentLink = squareData?.payment_link;
 
-    const paymentLinkId = squareData.payment_link?.id;
-    const paymentLinkUrl = squareData.payment_link?.url;
-
-    if (!paymentLinkId || !paymentLinkUrl) {
+    if (!paymentLink?.id || !paymentLink?.url) {
       throw new Error("Invalid Square response");
     }
 
+    // Store Square link ID for webhook lookup
     await supabase
       .from("orders")
       .update({
-        square_payment_link_id: paymentLinkId,
+        square_payment_link_id: paymentLink.id,
       })
       .eq("id", order.id);
 
-    return NextResponse.json({ url: paymentLinkUrl });
+    return NextResponse.json({ url: paymentLink.url });
   } catch (err) {
     console.error("Checkout error:", err);
     return NextResponse.json(
