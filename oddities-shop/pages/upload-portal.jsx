@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const ADMIN_UPLOAD_PASSWORD = "CHANGE_ME";
+const ADMIN_UPLOAD_PASSWORD = "SpookiPunkinTiny1212";
 
 export default function UploadPortalPage() {
   const [password, setPassword] = useState("");
