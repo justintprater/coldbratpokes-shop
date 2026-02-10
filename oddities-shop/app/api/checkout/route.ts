@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { SquareClient, Environment } from "square";
+import { SquareClient } from "square";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -8,8 +8,8 @@ const supabase = createClient(
 );
 
 const square = new SquareClient({
-  environment: Environment.Sandbox, // change to Production later
   accessToken: process.env.SQUARE_ACCESS_TOKEN!,
+  environment: "sandbox", // change to "production" later
 });
 
 export async function POST(req: NextRequest) {
