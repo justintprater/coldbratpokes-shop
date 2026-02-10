@@ -4,6 +4,9 @@ import { useState } from "react";
 
 export default function BuyButton({ productId }: { productId: string }) {
   const [loading, setLoading] = useState(false);
+  const [fulfillment, setFulfillment] = useState<"shipping" | "pickup">(
+    "shipping"
+  );
 
   async function handleBuy() {
     if (loading) return;
@@ -16,7 +19,8 @@ export default function BuyButton({ productId }: { productId: string }) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          productId, // 🔥 THIS IS THE KEY FIX
+          productId,
+          fulfillment,
         }),
       });
 
@@ -28,7 +32,6 @@ export default function BuyButton({ productId }: { productId: string }) {
         return;
       }
 
-      // Redirect to Square checkout
       window.location.href = json.url;
     } catch (err) {
       console.error("Checkout error:", err);
@@ -38,13 +41,36 @@ export default function BuyButton({ productId }: { productId: string }) {
   }
 
   return (
-    <button
-      onClick={handleBuy}
-      disabled={loading}
-      className="buyBtn"
-      style={{ opacity: loading ? 0.6 : 1 }}
-    >
-      {loading ? "Redirecting…" : "Buy"}
-    </button>
+    <div>
+      {/* Fulfillment selection */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: "flex", gap: 8, cursor: "pointer" }}>
+          <input
+            type="radio"
+            checked={fulfillment === "shipping"}
+            onChange={() => setFulfillment("shipping")}
+          />
+          Ship to me
+        </label>
+
+        <label style={{ display: "flex", gap: 8, cursor: "pointer" }}>
+          <input
+            type="radio"
+            checked={fulfillment === "pickup"}
+            onChange={() => setFulfillment("pickup")}
+          />
+          In-person pickup
+        </label>
+      </div>
+
+      <button
+        onClick={handleBuy}
+        disabled={loading}
+        className="buyBtn"
+        style={{ opacity: loading ? 0.6 : 1 }}
+      >
+        {loading ? "Redirecting…" : "Buy"}
+      </button>
+    </div>
   );
 }

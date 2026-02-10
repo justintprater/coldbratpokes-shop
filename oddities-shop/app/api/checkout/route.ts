@@ -1,153 +1,84 @@
-import { NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { Client, Environment } from "square";
 
-export async function POST(req: Request) {
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+const square = new Client({
+  environment: Environment.Sandbox, // change to Production later
+  accessToken: process.env.SQUARE_ACCESS_TOKEN!,
+});
+
+export async function POST(req: NextRequest) {
   try {
-    const { productId } = await req.json();
+    const { productId, fulfillment } = await req.json();
 
-    if (!productId) {
-      return NextResponse.json(
-        { error: "Missing productId" },
-        { status: 400 }
-      );
-    }
-
-    const accessToken = process.env.SQUARE_ACCESS_TOKEN;
-    const locationId = process.env.SQUARE_LOCATION_ID;
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-
-    if (!accessToken || !locationId || !siteUrl) {
-      return NextResponse.json(
-        { error: "Missing Square env vars" },
-        { status: 500 }
-      );
-    }
-
-    const isProd = process.env.SQUARE_ENV === "production";
-    const baseUrl = isProd
-      ? "https://connect.squareup.com"
-      : "https://connect.squareupsandbox.com";
-
-    /* ----------------------------------------------------
-       1️⃣ Fetch product
-    ---------------------------------------------------- */
-    const { data: product, error: productError } = await supabaseAdmin
+    const { data: product } = await supabase
       .from("products")
-      .select("id,title,price_cents,status")
+      .select("*")
       .eq("id", productId)
       .single();
 
-    if (productError || !product) {
-      return NextResponse.json(
-        { error: "Product not found" },
-        { status: 404 }
-      );
+    if (!product || product.status !== "available") {
+      return NextResponse.json({ error: "Unavailable" }, { status: 400 });
     }
 
-    if (product.status !== "available") {
-      return NextResponse.json(
-        { error: "Product not available" },
-        { status: 409 }
-      );
-    }
+    // Reserve product
+    await supabase
+      .from("products")
+      .update({
+        status: "reserved",
+        reserved_until: new Date(Date.now() + 15 * 60 * 1000),
+      })
+      .eq("id", product.id);
 
-    /* ----------------------------------------------------
-       2️⃣ Reserve product (10 minutes, ATOMIC)
-    ---------------------------------------------------- */
-    const reservedUntil = new Date(
-      Date.now() + 10 * 60 * 1000
-    ).toISOString();
+    // Create order
+    const { data: order } = await supabase
+      .from("orders")
+      .insert({
+        product_id: product.id,
+        status: "created",
+        fulfillment_method: fulfillment,
+      })
+      .select()
+      .single();
 
-    const { data: reservedRows, error: reserveError } =
-      await supabaseAdmin
-        .from("products")
-        .update({
-          status: "reserved",
-          reserved_until: reservedUntil,
-        })
-        .eq("id", product.id)
-        .eq("status", "available")
-        .select("id");
-
-    if (reserveError || !reservedRows || reservedRows.length === 0) {
-      return NextResponse.json(
-        { error: "Failed to reserve product" },
-        { status: 409 }
-      );
-    }
-
-    /* ----------------------------------------------------
-       3️⃣ Create order row
-    ---------------------------------------------------- */
-    const { data: orderRow, error: orderError } =
-      await supabaseAdmin
-        .from("orders")
-        .insert({
-          product_id: product.id,
-          status: "pending",
-        })
-        .select("id")
-        .single();
-
-    if (orderError || !orderRow) {
-      return NextResponse.json(
-        { error: "Failed to create order" },
-        { status: 500 }
-      );
-    }
-
-    const orderId = orderRow.id;
-
-    /* ----------------------------------------------------
-       4️⃣ Create Square payment link
-    ---------------------------------------------------- */
-    const body = {
-      idempotency_key: crypto.randomUUID(),
-      quick_pay: {
-        name: product.title,
-        price_money: {
-          amount: product.price_cents,
-          currency: "USD",
-        },
-        location_id: locationId,
+    const checkout = await square.checkoutApi.createPaymentLink({
+      order: {
+        locationId: process.env.SQUARE_LOCATION_ID!,
+        lineItems: [
+          {
+            name: product.title,
+            quantity: "1",
+            basePriceMoney: {
+              amount: BigInt(product.price_cents),
+              currency: "USD",
+            },
+          },
+        ],
       },
-      checkout_options: {
-        redirect_url: `${siteUrl}/thank-you?order=${orderId}`,
+      checkoutOptions: {
+        askForShippingAddress: fulfillment === "shipping",
       },
-    };
-
-    const resp = await fetch(
-      `${baseUrl}/v2/online-checkout/payment-links`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(body),
-      }
-    );
-
-    const json = await resp.json();
-
-    if (!resp.ok || !json?.payment_link?.url) {
-      return NextResponse.json(
-        { error: "Square error", details: json },
-        { status: 500 }
-      );
-    }
-
-    /* ----------------------------------------------------
-       5️⃣ Return checkout URL
-    ---------------------------------------------------- */
-    return NextResponse.json({
-      url: json.payment_link.url,
     });
-  } catch (err: any) {
-    console.error("CHECKOUT ERROR:", err);
 
+    await supabase
+      .from("orders")
+      .update({
+        square_payment_link_id: checkout.result.paymentLink?.id,
+      })
+      .eq("id", order.id);
+
+    return NextResponse.json({
+      url: checkout.result.paymentLink?.url,
+    });
+  } catch (err) {
+    console.error(err);
     return NextResponse.json(
-      { error: err?.message ?? "Unknown error" },
+      { error: "Checkout failed" },
       { status: 500 }
     );
   }
