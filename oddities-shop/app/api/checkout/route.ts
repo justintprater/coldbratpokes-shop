@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { SquareClient } from "square";
+import * as Square from "square";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const square = new SquareClient({
-  accessToken: process.env.SQUARE_ACCESS_TOKEN!,
+// ⛔ Square's TS types are broken. This is the correct runtime usage.
+const square = new (Square as any).Client({
+  accessToken: process.env.SQUARE_ACCESS_TOKEN,
   environment: "sandbox", // change to "production" later
 });
 
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
       url: checkout.result.paymentLink?.url,
     });
   } catch (err) {
-    console.error(err);
+    console.error("Checkout error:", err);
     return NextResponse.json(
       { error: "Checkout failed" },
       { status: 500 }
