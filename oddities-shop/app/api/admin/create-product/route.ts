@@ -51,7 +51,7 @@ export async function POST(req: Request) {
       console.error(productError);
       return NextResponse.json(
         { error: "Failed to create product" },
-        { status: 500 }
+        { status: 200 }
       );
     }
 
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
       console.error(uploadError);
       return NextResponse.json(
         { error: "Image upload failed" },
-        { status: 500 }
+        { status: 200 }
       );
     }
 
@@ -91,12 +91,12 @@ export async function POST(req: Request) {
       console.error(imageInsertError);
       return NextResponse.json(
         { error: "Failed to save image" },
-        { status: 500 }
+        { status: 200 }
       );
     }
 
     // ✅ DONE
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, debug: "Reached end of API successfully" });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
