@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"; // Ensure this page is always server-rendered
 import { supabaseServer } from "../lib/supabaseServer";
 import ShopTabs, { type ProductRow } from "./ShopTabs";
 
