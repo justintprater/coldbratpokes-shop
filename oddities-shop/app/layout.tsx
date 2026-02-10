@@ -17,7 +17,7 @@ const clean = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "ColdBratPokes x Lalam0e",
+  title: "ColdBratPokes",
   description: "Oddities, engravings, apparel, and prints",
 };
 
