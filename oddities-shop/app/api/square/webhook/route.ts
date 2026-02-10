@@ -66,7 +66,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  const { data: order } = await supabaseAdmin
+  // ⛔ Explicitly type as any to bypass broken Supabase TS inference
+  const { data: order }: { data: any } = await supabaseAdmin
     .from("orders")
     .select("id, product_id, fulfillment_method, products(title)")
     .eq("square_order_id", squareOrderId)
@@ -76,10 +77,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // Safely extract product title (Supabase may return array)
-  const productTitle = Array.isArray(order.products)
-    ? order.products[0]?.title
-    : order.products?.title;
+  const productTitle =
+    Array.isArray(order.products) && order.products.length > 0
+      ? order.products[0].title
+      : order.products?.title ?? "Unknown product";
 
   await supabaseAdmin
     .from("orders")
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
       subject: "New order received",
       html: `
         <h3>New Order</h3>
-        <p><strong>Product:</strong> ${productTitle ?? "Unknown product"}</p>
+        <p><strong>Product:</strong> ${productTitle}</p>
         <p><strong>Buyer:</strong> ${buyerName || "N/A"}</p>
         <p><strong>Email:</strong> ${buyerEmail || "N/A"}</p>
         <p><strong>Fulfillment:</strong> ${order.fulfillment_method}</p>
