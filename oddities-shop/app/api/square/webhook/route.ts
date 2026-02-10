@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // 🔐 Verify Square signature
+  // Verify Square signature
   const expected = crypto
     .createHmac("sha256", key)
     .update(notificationUrl + body)
@@ -59,18 +59,13 @@ export async function POST(req: Request) {
 
   const paymentId = payment.id as string | undefined;
   const squareOrderId = payment.order_id as string | undefined;
-  const buyerEmail = payment.buyer_email_address as
-    | string
-    | undefined;
-  const buyerName = payment.buyer_details?.name as
-    | string
-    | undefined;
+  const buyerEmail = payment.buyer_email_address as string | undefined;
+  const buyerName = payment.buyer_details?.name as string | undefined;
 
   if (!squareOrderId) {
     return NextResponse.json({ ok: true });
   }
 
-  // 🔎 Find our internal order
   const { data: order } = await supabaseAdmin
     .from("orders")
     .select("id, product_id, fulfillment_method, products(title)")
@@ -81,7 +76,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // ✅ Mark order paid + store buyer info
+  // Safely extract product title (Supabase may return array)
+  const productTitle = Array.isArray(order.products)
+    ? order.products[0]?.title
+    : order.products?.title;
+
   await supabaseAdmin
     .from("orders")
     .update({
@@ -92,7 +91,6 @@ export async function POST(req: Request) {
     })
     .eq("id", order.id);
 
-  // ✅ Mark product sold (always)
   await supabaseAdmin
     .from("products")
     .update({
@@ -101,7 +99,6 @@ export async function POST(req: Request) {
     })
     .eq("id", order.product_id);
 
-  // 📧 Notify her by email
   if (process.env.OWNER_EMAIL && process.env.RESEND_API_KEY) {
     await resend.emails.send({
       from: "Orders <orders@yourdomain.com>",
@@ -109,7 +106,7 @@ export async function POST(req: Request) {
       subject: "New order received",
       html: `
         <h3>New Order</h3>
-        <p><strong>Product:</strong> ${order.products.title}</p>
+        <p><strong>Product:</strong> ${productTitle ?? "Unknown product"}</p>
         <p><strong>Buyer:</strong> ${buyerName || "N/A"}</p>
         <p><strong>Email:</strong> ${buyerEmail || "N/A"}</p>
         <p><strong>Fulfillment:</strong> ${order.fulfillment_method}</p>
