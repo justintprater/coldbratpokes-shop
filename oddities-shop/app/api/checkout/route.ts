@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 const SQUARE_BASE_URL = "https://connect.squareupsandbox.com";
-// production later: https://connect.squareup.com
+// prod later: https://connect.squareup.com
 
 export async function POST(req: NextRequest) {
   try {
@@ -43,7 +43,6 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
 
-    // Create Square payment link (NO SDK)
     const squareRes = await fetch(
       `${SQUARE_BASE_URL}/v2/online-checkout/payment-links`,
       {
@@ -68,6 +67,7 @@ export async function POST(req: NextRequest) {
           },
           checkout_options: {
             ask_for_shipping_address: fulfillment === "shipping",
+            redirect_url: `${process.env.NEXT_PUBLIC_SITE_URL}/thank-you`,
           },
         }),
       }
