@@ -97,7 +97,7 @@ export async function POST(req: Request) {
 
   // ✉️ SEND EMAIL (THIS IS THE POINT)
   await resend.emails.send({
-    from: "Cold Brat Pokes <onboarding@resend.dev>",
+    from: "Resend <onboarding@resend.dev>",
     to: process.env.OWNER_EMAIL!,
     subject: "New Order Received",
     html: `
