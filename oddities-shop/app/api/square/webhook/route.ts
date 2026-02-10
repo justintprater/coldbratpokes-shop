@@ -1,7 +1,6 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { Resend } from "resend";
@@ -21,17 +20,22 @@ export async function POST(req: Request) {
     req.headers.get("x-square-hmacsha256-signature") || "";
   const body = await req.text();
 
-  const key = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
+  const webhookKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
   const notificationUrl =
     process.env.SQUARE_WEBHOOK_NOTIFICATION_URL;
 
-  if (!key || !notificationUrl) {
+  if (!webhookKey || !notificationUrl) {
     return NextResponse.json(
       { error: "Missing webhook env vars" },
       { status: 500 }
     );
   }
 
+  // 🔐 Signature verification (THIS fixes your build error)
+  const expected = crypto
+    .createHmac("sha256", webhookKey)
+    .update(notificationUrl + body)
+    .digest("base64");
 
   if (!signature || !timingSafeEqual(signature, expected)) {
     return NextResponse.json(
@@ -51,24 +55,21 @@ export async function POST(req: Request) {
   }
 
   const payment = event?.data?.object?.payment;
-
   if (!payment || payment.status !== "COMPLETED") {
     return NextResponse.json({ ok: true });
   }
 
-  const paymentId = payment.id as string | undefined;
-  const squareOrderId = payment.order_id as string | undefined;
-  const buyerEmail = payment.buyer_email_address as string | undefined;
-  const buyerName = payment.buyer_details?.name as string | undefined;
+  const squareOrderId = payment.order_id;
+  const paymentId = payment.id;
 
   if (!squareOrderId) {
     return NextResponse.json({ ok: true });
   }
 
-  // ⛔ Explicitly type as any to bypass broken Supabase TS inference
-  const { data: order }: { data: any } = await supabaseAdmin
+  // 🔎 Find internal order
+  const { data: order } = await supabaseAdmin
     .from("orders")
-    .select("id, product_id, fulfillment_method, products(title)")
+    .select("id, product_id, fulfillment_method")
     .eq("square_order_id", squareOrderId)
     .single();
 
@@ -76,21 +77,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  const productTitle =
-    Array.isArray(order.products) && order.products.length > 0
-      ? order.products[0].title
-      : order.products?.title ?? "Unknown product";
-
+  // ✅ Mark order paid
   await supabaseAdmin
     .from("orders")
     .update({
       status: "paid",
       square_payment_id: paymentId,
-      buyer_email: buyerEmail,
-      buyer_name: buyerName,
     })
     .eq("id", order.id);
 
+  // ✅ Mark product sold
   await supabaseAdmin
     .from("products")
     .update({
@@ -99,20 +95,18 @@ export async function POST(req: Request) {
     })
     .eq("id", order.product_id);
 
-  if (process.env.OWNER_EMAIL && process.env.RESEND_API_KEY) {
-    await resend.emails.send({
-      from: "Orders <orders@yourdomain.com>",
-      to: process.env.OWNER_EMAIL,
-      subject: "New order received",
-      html: `
-        <h3>New Order</h3>
-        <p><strong>Product:</strong> ${productTitle}</p>
-        <p><strong>Buyer:</strong> ${buyerName || "N/A"}</p>
-        <p><strong>Email:</strong> ${buyerEmail || "N/A"}</p>
-        <p><strong>Fulfillment:</strong> ${order.fulfillment_method}</p>
-      `,
-    });
-  }
+  // ✉️ SEND EMAIL (THIS IS THE POINT)
+  await resend.emails.send({
+    from: "Cold Brat Pokes <onboarding@resend.dev>",
+    to: process.env.OWNER_EMAIL!,
+    subject: "New Order Received",
+    html: `
+      <h2>New Order</h2>
+      <p><strong>Fulfillment:</strong> ${order.fulfillment_method}</p>
+      <p><strong>Square Order ID:</strong> ${squareOrderId}</p>
+      <p><strong>Payment ID:</strong> ${paymentId}</p>
+    `,
+  });
 
   return NextResponse.json({ ok: true });
 }
