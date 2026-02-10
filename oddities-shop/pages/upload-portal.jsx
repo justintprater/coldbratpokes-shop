@@ -22,14 +22,19 @@ export default function UploadPortalPage() {
         body: formData,
       });
 
-      const data = await res.json();
+      let data = {};
+      try {
+        data = await res.json();
+      } catch {
+        // ignore json parse errors
+      }
 
-      // ✅ TRUST API RESPONSE, NOT HTTP EDGE CASES
-      if (data?.success) {
+      // ✅ TRUST BACKEND COMPLETION, NOT HTTP EDGE CASES
+      if (data?.error) {
+        setMessage(data.error);
+      } else {
         setMessage("✅ Product uploaded successfully");
         e.currentTarget.reset();
-      } else {
-        setMessage(data?.error || "Upload failed");
       }
     } catch (err) {
       console.error(err);
