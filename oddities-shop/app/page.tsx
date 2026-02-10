@@ -48,7 +48,7 @@ export default async function Home() {
   return (
     <>
       <header className="hero">
-        <h1 className="brandTitle">ColdBratPokes x Lalam0e</h1>
+        <h1 className="brandTitle">ColdBratPokes</h1>
         <p className="brandSub">Oddities • Engravings • Apparel • Prints</p>
       </header>
 
