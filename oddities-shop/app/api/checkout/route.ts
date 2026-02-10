@@ -28,45 +28,68 @@ export async function POST(req: Request) {
       ? "https://connect.squareup.com"
       : "https://connect.squareupsandbox.com";
 
-    // 1) Fetch product
-    const { data: product } = await supabaseAdmin
+    /* ----------------------------------------------------
+       1️⃣ Fetch product
+    ---------------------------------------------------- */
+    const { data: product, error: productError } = await supabaseAdmin
       .from("products")
       .select("id,title,price_cents,status")
       .eq("id", productId)
       .single();
 
-    if (!product || product.status !== "available") {
+    if (productError || !product) {
+      return NextResponse.json(
+        { error: "Product not found" },
+        { status: 404 }
+      );
+    }
+
+    if (product.status !== "available") {
       return NextResponse.json(
         { error: "Product not available" },
         { status: 409 }
       );
     }
 
-    // 2) Reserve product (10 minutes)
+    /* ----------------------------------------------------
+       2️⃣ Reserve product (10 minutes, ATOMIC)
+    ---------------------------------------------------- */
     const reservedUntil = new Date(
       Date.now() + 10 * 60 * 1000
     ).toISOString();
 
-    await supabaseAdmin
-      .from("products")
-      .update({
-        status: "reserved",
-        reserved_until: reservedUntil,
-      })
-      .eq("id", product.id)
-      .eq("status", "available");
+    const { data: reservedRows, error: reserveError } =
+      await supabaseAdmin
+        .from("products")
+        .update({
+          status: "reserved",
+          reserved_until: reservedUntil,
+        })
+        .eq("id", product.id)
+        .eq("status", "available")
+        .select("id");
 
-    // 3) Create order row
-    const { data: orderRow } = await supabaseAdmin
-      .from("orders")
-      .insert({
-        product_id: product.id,
-        status: "created",
-      })
-      .select("id")
-      .single();
+    if (reserveError || !reservedRows || reservedRows.length === 0) {
+      return NextResponse.json(
+        { error: "Failed to reserve product" },
+        { status: 409 }
+      );
+    }
 
-    if (!orderRow) {
+    /* ----------------------------------------------------
+       3️⃣ Create order row
+    ---------------------------------------------------- */
+    const { data: orderRow, error: orderError } =
+      await supabaseAdmin
+        .from("orders")
+        .insert({
+          product_id: product.id,
+          status: "pending",
+        })
+        .select("id")
+        .single();
+
+    if (orderError || !orderRow) {
       return NextResponse.json(
         { error: "Failed to create order" },
         { status: 500 }
@@ -75,7 +98,9 @@ export async function POST(req: Request) {
 
     const orderId = orderRow.id;
 
-    // 4) Create Square PAYMENT LINK
+    /* ----------------------------------------------------
+       4️⃣ Create Square payment link
+    ---------------------------------------------------- */
     const body = {
       idempotency_key: crypto.randomUUID(),
       quick_pay: {
@@ -87,7 +112,7 @@ export async function POST(req: Request) {
         location_id: locationId,
       },
       checkout_options: {
-        redirect_url: `${siteUrl}/thank-you?pid=${orderId}`,
+        redirect_url: `${siteUrl}/thank-you?order=${orderId}`,
       },
     };
 
@@ -112,8 +137,15 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ url: json.payment_link.url });
+    /* ----------------------------------------------------
+       5️⃣ Return checkout URL
+    ---------------------------------------------------- */
+    return NextResponse.json({
+      url: json.payment_link.url,
+    });
   } catch (err: any) {
+    console.error("CHECKOUT ERROR:", err);
+
     return NextResponse.json(
       { error: err?.message ?? "Unknown error" },
       { status: 500 }
