@@ -8,41 +8,30 @@ export default function UploadPortalPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setLoading(true);
-    setMessage("");
+async function handleSubmit(e) {
+  e.preventDefault();
+  setLoading(true);
+  setMessage("");
 
-    const formData = new FormData(e.currentTarget);
-    formData.append("password", password);
+  const formData = new FormData(e.currentTarget);
+  formData.append("password", password);
 
-    try {
-      const res = await fetch("/api/admin/create-product", {
-        method: "POST",
-        body: formData,
-      });
+  try {
+    await fetch("/api/admin/create-product", {
+      method: "POST",
+      body: formData,
+    });
 
-      let data = {};
-      try {
-        data = await res.json();
-      } catch {
-        // ignore json parse errors
-      }
-
-      // ✅ TRUST BACKEND COMPLETION, NOT HTTP EDGE CASES
-      if (data?.error) {
-        setMessage(data.error);
-      } else {
-        setMessage("✅ Product uploaded successfully");
-        e.currentTarget.reset();
-      }
-    } catch (err) {
-      console.error(err);
-      setMessage("Upload failed");
-    }
-
-    setLoading(false);
+    setMessage("✅ Product uploaded successfully");
+    e.currentTarget.reset();
+  } catch (err) {
+    console.error(err);
+    setMessage("Upload failed");
   }
+
+  setLoading(false);
+}
+
 
   // 🔐 PASSWORD GATE
   if (!authorized) {
