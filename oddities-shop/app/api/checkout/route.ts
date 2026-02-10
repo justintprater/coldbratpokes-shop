@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { Client, Environment } from "square";
+import { SquareClient, Environment } from "square";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const square = new Client({
+const square = new SquareClient({
   environment: Environment.Sandbox, // change to Production later
   accessToken: process.env.SQUARE_ACCESS_TOKEN!,
 });
