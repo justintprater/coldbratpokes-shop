@@ -117,7 +117,7 @@ console.log("Resend key prefix:", process.env.RESEND_API_KEY?.slice(0, 6));
 
 
   await resend.emails.send({
-    from: "onboarding@resend.dev",
+    from: "order@coldbratpokes.com",
     to: process.env.OWNER_EMAIL!,
     subject: "New Order Received",
     html: `
