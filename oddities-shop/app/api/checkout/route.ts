@@ -30,7 +30,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (product.quantity_available < quantity) {
-      return NextResponse.json({ error: "Not enough inventory" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Not enough inventory" },
+        { status: 400 }
+      );
     }
 
     const squareRes = await fetch(
@@ -57,6 +60,8 @@ export async function POST(req: NextRequest) {
           },
           checkout_options: {
             ask_for_shipping_address: fulfillment === "shipping",
+            ask_for_email_address: true,
+            ask_for_phone_number: true,
             redirect_url: `${process.env.NEXT_PUBLIC_SITE_URL}/thank-you`,
           },
         }),

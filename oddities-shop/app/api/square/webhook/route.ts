@@ -113,6 +113,11 @@ console.log("Sending email now...");
 console.log("Resend key exists:", !!process.env.RESEND_API_KEY);
 console.log("Resend key prefix:", process.env.RESEND_API_KEY?.slice(0, 6));
 
+console.log("Buyer email:", payment.buyer_email_address);
+console.log("Shipping address:", payment.shipping_address);
+console.log("Billing address:", payment.billing_address);
+
+
 
 
 
