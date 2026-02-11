@@ -10,18 +10,13 @@ const supabase = createClient(
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
-function verifySquareSignature(
-  rawBody: string,
-  signature: string | null
-) {
+function verifySquareSignature(rawBody: string, signature: string | null) {
   if (!signature) return false;
 
   const notificationUrl = process.env.SQUARE_WEBHOOK_NOTIFICATION_URL!;
   const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY!;
 
   const hmac = crypto.createHmac("sha256", signatureKey);
-
-  // THIS IS THE CRITICAL PART
   hmac.update(notificationUrl + rawBody);
 
   const expectedSignature = hmac.digest("base64");
@@ -79,6 +74,7 @@ export async function POST(req: NextRequest) {
     .eq("id", order.product_id)
     .single();
 
+  // 🔥 INVENTORY UPDATE
   const newQuantity = product.quantity_available - order.quantity;
 
   if (newQuantity <= 0) {
@@ -98,39 +94,42 @@ export async function POST(req: NextRequest) {
       .eq("id", product.id);
   }
 
-console.log("Webhook received");
+  // 🔥 BUYER INFO EXTRACTION (THE FIX)
+  const buyerEmail = payment.buyer_email_address ?? "Not provided";
 
-console.log("Event type:", event.type);
+  const shipping = payment.shipping_address;
+  const billing = payment.billing_address;
 
-console.log("Payment status:", payment.status);
+  const address = shipping || billing;
 
-console.log("Looking up order with square_order_id:", payment.order_id);
+  const formattedAddress = address
+    ? `
+      ${address.address_line_1 ?? ""}
+      ${address.address_line_2 ?? ""}
+      ${address.locality ?? ""}
+      ${address.administrative_district_level_1 ?? ""}
+      ${address.postal_code ?? ""}
+      ${address.country ?? ""}
+    `
+    : "No address provided";
 
-console.log("Order found:", order);
+  const totalPaid = (payment.amount_money.amount / 100).toFixed(2);
 
-console.log("Sending email now...");
-
-console.log("Resend key exists:", !!process.env.RESEND_API_KEY);
-console.log("Resend key prefix:", process.env.RESEND_API_KEY?.slice(0, 6));
-
-console.log("Buyer email:", payment.buyer_email_address);
-console.log("Shipping address:", payment.shipping_address);
-console.log("Billing address:", payment.billing_address);
-
-
-
-
-
+  // 🔥 EMAIL
   await resend.emails.send({
     from: "order@coldbratpokes.com",
     to: process.env.OWNER_EMAIL!,
     subject: "New Order Received",
     html: `
       <h2>New Order</h2>
-      <p>Product: ${product.title}</p>
-      <p>Quantity: ${order.quantity}</p>
-      <p>Fulfillment: ${order.fulfillment_method}</p>
-      <p>Total Paid: $${(payment.amount_money.amount / 100).toFixed(2)}</p>
+      <p><strong>Product:</strong> ${product.title}</p>
+      <p><strong>Quantity:</strong> ${order.quantity}</p>
+      <p><strong>Fulfillment:</strong> ${order.fulfillment_method}</p>
+      <p><strong>Total Paid:</strong> $${totalPaid}</p>
+      <hr/>
+      <h3>Customer Info</h3>
+      <p><strong>Email:</strong> ${buyerEmail}</p>
+      <p><strong>Address:</strong><br/>${formattedAddress}</p>
     `,
   });
 
