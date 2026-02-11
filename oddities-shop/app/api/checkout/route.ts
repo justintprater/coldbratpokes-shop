@@ -10,7 +10,6 @@ const supabase = createClient(
 );
 
 const SQUARE_BASE_URL = "https://connect.squareupsandbox.com";
-// prod later: https://connect.squareup.com
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,10 +39,7 @@ export async function POST(req: NextRequest) {
       product.reserved_until &&
       new Date(product.reserved_until) < now;
 
-    if (
-      product.status !== "available" &&
-      !isReservedAndExpired
-    ) {
+    if (product.status !== "available" && !isReservedAndExpired) {
       return NextResponse.json({ error: "Unavailable" }, { status: 400 });
     }
 
@@ -89,28 +85,28 @@ export async function POST(req: NextRequest) {
 
     if (!squareRes.ok) {
       const err = await squareRes.text();
-      throw new Error(err);
+      console.error("Square error:", err);
+      throw new Error("Square checkout failed");
     }
 
     const squareData = await squareRes.json();
 
-    const squareOrderId = squareData?.order?.id;
     const paymentLink = squareData?.payment_link;
+    const squareOrderId = paymentLink?.order_id;
 
-    if (!squareOrderId || !paymentLink?.id || !paymentLink?.url) {
+    if (!paymentLink?.id || !paymentLink?.url || !squareOrderId) {
+      console.error("Bad Square response:", squareData);
       throw new Error("Invalid Square response");
     }
 
-    // Create order AFTER we have square_order_id
-    await supabase
-      .from("orders")
-      .insert({
-        product_id: product.id,
-        status: "created",
-        fulfillment_method: fulfillment,
-        square_order_id: squareOrderId,
-        square_payment_link_id: paymentLink.id,
-      });
+    // Create order WITH square_order_id
+    await supabase.from("orders").insert({
+      product_id: product.id,
+      status: "created",
+      fulfillment_method: fulfillment,
+      square_order_id: squareOrderId,
+      square_payment_link_id: paymentLink.id,
+    });
 
     return NextResponse.json({ url: paymentLink.url });
   } catch (err) {
