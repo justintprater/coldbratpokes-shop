@@ -26,22 +26,15 @@ export default function BuyButton({ productId }: { productId: string }) {
 
       const json = await res.json();
 
-      console.log("Checkout response:", json);
-
       if (!res.ok) {
         alert(json?.error ?? "Checkout failed");
         setLoading(false);
         return;
       }
 
-      // 🔥 TEMP DEBUG — show the URL instead of redirecting
-      alert(`Generated checkout URL:\n\n${json.url}`);
-      console.log("Redirect URL:", json.url);
+      // ✅ Real redirect (no debug)
+      window.location.href = json.url;
 
-      // COMMENTED OUT FOR DEBUGGING
-      // window.location.href = json.url;
-
-      setLoading(false);
     } catch (err) {
       console.error("Checkout error:", err);
       alert("Something went wrong starting checkout.");
@@ -51,7 +44,6 @@ export default function BuyButton({ productId }: { productId: string }) {
 
   return (
     <div>
-      {/* Fulfillment selection */}
       <div style={{ marginBottom: 12 }}>
         <label style={{ display: "flex", gap: 8, cursor: "pointer" }}>
           <input
@@ -78,7 +70,7 @@ export default function BuyButton({ productId }: { productId: string }) {
         className="buyBtn"
         style={{ opacity: loading ? 0.6 : 1 }}
       >
-        {loading ? "Generating Checkout…" : "Buy"}
+        {loading ? "Redirecting…" : "Buy"}
       </button>
     </div>
   );
