@@ -86,6 +86,9 @@ export async function POST(req: NextRequest) {
     });
 
     console.log("Returning payment URL:", paymentLink.url);
+    console.log("SQUARE_ENV:", process.env.SQUARE_ENV);
+    console.log("SQUARE_BASE_URL:", SQUARE_BASE_URL);
+
 
 
     return NextResponse.json({ url: paymentLink.url });
