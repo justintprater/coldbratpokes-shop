@@ -1,111 +1,109 @@
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
-function timingSafeEqual(a: string, b: string) {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ab, bb);
+function verifySignature(body: string, signature: string | null) {
+  if (!signature) return false;
+
+  const hmac = crypto.createHmac(
+    "sha256",
+    process.env.SQUARE_WEBHOOK_SIGNATURE_KEY!
+  );
+
+  hmac.update(body);
+  const digest = hmac.digest("base64");
+
+  return digest === signature;
 }
 
-export async function POST(req: Request) {
-  try {
-    const signature =
-      req.headers.get("x-square-hmacsha256-signature") || "";
-    const body = await req.text();
+export async function POST(req: NextRequest) {
+  const signature = req.headers.get("x-square-hmacsha256-signature");
+  const rawBody = await req.text();
 
-    const webhookKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
-    const notificationUrl =
-      process.env.SQUARE_WEBHOOK_NOTIFICATION_URL;
+  if (!verifySignature(rawBody, signature)) {
+    return new NextResponse("Invalid signature", { status: 401 });
+  }
 
-    if (!webhookKey || !notificationUrl) {
-      console.error("❌ Missing webhook env vars");
-      return NextResponse.json(
-        { error: "Missing webhook env vars" },
-        { status: 500 }
-      );
-    }
+  const event = JSON.parse(rawBody);
 
-    const expected = crypto
-      .createHmac("sha256", webhookKey)
-      .update(notificationUrl + body)
-      .digest("base64");
+  if (event.type !== "payment.updated") {
+    return NextResponse.json({ received: true });
+  }
 
-    if (!signature || !timingSafeEqual(signature, expected)) {
-      console.error("❌ Invalid Square signature");
-      return NextResponse.json(
-        { error: "Invalid signature" },
-        { status: 401 }
-      );
-    }
+  const payment = event.data.object.payment;
 
-    const event = JSON.parse(body);
-    const payment = event?.data?.object?.payment;
+  if (payment.status !== "COMPLETED") {
+    return NextResponse.json({ received: true });
+  }
 
-    if (!payment || payment.status !== "COMPLETED") {
-      console.log("ℹ️ Ignored non-completed payment");
-      return NextResponse.json({ ok: true });
-    }
+  const { data: order } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("square_order_id", payment.order_id)
+    .single();
 
-    const squareOrderId = payment.order_id;
-    const paymentId = payment.id;
+  if (!order) {
+    console.error("Order not found:", payment.order_id);
+    return NextResponse.json({ received: true });
+  }
 
-    const { data: order } = await supabaseAdmin
-      .from("orders")
-      .select("id, product_id, fulfillment_method")
-      .eq("square_order_id", squareOrderId)
-      .single();
+  if (order.status === "paid") {
+    return NextResponse.json({ received: true });
+  }
 
-    if (!order) {
-      console.warn("⚠️ Order not found for Square order", squareOrderId);
-      return NextResponse.json({ ok: true });
-    }
+  await supabase
+    .from("orders")
+    .update({
+      status: "paid",
+      square_payment_id: payment.id,
+    })
+    .eq("id", order.id);
 
-    await supabaseAdmin
-      .from("orders")
-      .update({
-        status: "paid",
-        square_payment_id: paymentId,
-      })
-      .eq("id", order.id);
+  const { data: product } = await supabase
+    .from("products")
+    .select("*")
+    .eq("id", order.product_id)
+    .single();
 
-    await supabaseAdmin
+  let newQuantity = product.quantity_available - order.quantity;
+
+  if (newQuantity <= 0) {
+    await supabase
       .from("products")
       .update({
+        quantity_available: 0,
         status: "sold",
-        reserved_until: null,
       })
-      .eq("id", order.product_id);
-
-    console.log("📧 Attempting to send email via Resend");
-
-    const emailResult = await resend.emails.send({
-      from: "Resend <onboarding@resend.dev>",
-      to: process.env.OWNER_EMAIL!,
-      subject: "New Order Received",
-      html: `
-        <h2>New Order</h2>
-        <p><strong>Fulfillment:</strong> ${order.fulfillment_method}</p>
-        <p><strong>Square Order ID:</strong> ${squareOrderId}</p>
-        <p><strong>Payment ID:</strong> ${paymentId}</p>
-      `,
-    });
-
-    console.log("📨 Resend response:", emailResult);
-
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("🔥 Webhook crashed:", err);
-    return NextResponse.json(
-      { error: "Webhook failure" },
-      { status: 500 }
-    );
+      .eq("id", product.id);
+  } else {
+    await supabase
+      .from("products")
+      .update({
+        quantity_available: newQuantity,
+      })
+      .eq("id", product.id);
   }
+
+  await resend.emails.send({
+    from: process.env.OWNER_EMAIL!,
+    to: process.env.OWNER_EMAIL!,
+    subject: "New Order Received",
+    html: `
+      <h2>New Order</h2>
+      <p>Product: ${product.title}</p>
+      <p>Quantity: ${order.quantity}</p>
+      <p>Fulfillment: ${order.fulfillment_method}</p>
+      <p>Total Paid: $${(payment.amount_money.amount / 100).toFixed(2)}</p>
+    `,
+  });
+
+  return NextResponse.json({ received: true });
 }
