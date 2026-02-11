@@ -98,6 +98,19 @@ export async function POST(req: NextRequest) {
       .eq("id", product.id);
   }
 
+console.log("Webhook received");
+
+console.log("Event type:", event.type);
+
+console.log("Payment status:", payment.status);
+
+console.log("Looking up order with square_order_id:", payment.order_id);
+
+console.log("Order found:", order);
+
+console.log("Sending email now...");
+
+
   await resend.emails.send({
     from: process.env.OWNER_EMAIL!,
     to: process.env.OWNER_EMAIL!,
