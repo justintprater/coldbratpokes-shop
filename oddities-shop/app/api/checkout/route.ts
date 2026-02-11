@@ -9,23 +9,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Sandbox for now
 const SQUARE_BASE_URL = "https://connect.squareupsandbox.com";
-// prod later: https://connect.squareup.com
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const productId = body?.productId;
-    const fulfillment =
-      body?.fulfillment === "pickup" ? "pickup" : "shipping";
-
-    if (!productId) {
-      return NextResponse.json(
-        { error: "Missing productId" },
-        { status: 400 }
-      );
-    }
+    const { productId, fulfillment } = await req.json();
 
     const { data: product } = await supabase
       .from("products")
@@ -45,17 +33,6 @@ export async function POST(req: NextRequest) {
         reserved_until: new Date(Date.now() + 15 * 60 * 1000),
       })
       .eq("id", product.id);
-
-    // Create order
-    const { data: order } = await supabase
-      .from("orders")
-      .insert({
-        product_id: product.id,
-        status: "created",
-        fulfillment_method: fulfillment,
-      })
-      .select()
-      .single();
 
     // Create Square payment link
     const squareRes = await fetch(
@@ -89,23 +66,30 @@ export async function POST(req: NextRequest) {
     );
 
     if (!squareRes.ok) {
-      const err = await squareRes.text();
-      throw new Error(err);
+      throw new Error(await squareRes.text());
     }
 
     const squareData = await squareRes.json();
+
+    const squareOrderId = squareData?.order?.id;
     const paymentLink = squareData?.payment_link;
 
-    if (!paymentLink?.id || !paymentLink?.url) {
+    if (!squareOrderId || !paymentLink?.id || !paymentLink?.url) {
       throw new Error("Invalid Square response");
     }
 
-    await supabase
+    // 🔑 CREATE ORDER *AFTER* WE HAVE square_order_id
+    const { data: order } = await supabase
       .from("orders")
-      .update({
+      .insert({
+        product_id: product.id,
+        status: "created",
+        fulfillment_method: fulfillment,
+        square_order_id: squareOrderId,
         square_payment_link_id: paymentLink.id,
       })
-      .eq("id", order.id);
+      .select()
+      .single();
 
     return NextResponse.json({ url: paymentLink.url });
   } catch (err) {
