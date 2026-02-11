@@ -10,10 +10,18 @@ const supabase = createClient(
 );
 
 const SQUARE_BASE_URL = "https://connect.squareupsandbox.com";
+// prod later: https://connect.squareup.com
 
 export async function POST(req: NextRequest) {
   try {
     const { productId, fulfillment } = await req.json();
+
+    if (!productId) {
+      return NextResponse.json(
+        { error: "Missing productId" },
+        { status: 400 }
+      );
+    }
 
     const { data: product } = await supabase
       .from("products")
@@ -21,7 +29,21 @@ export async function POST(req: NextRequest) {
       .eq("id", productId)
       .single();
 
-    if (!product || product.status !== "available") {
+    if (!product) {
+      return NextResponse.json({ error: "Unavailable" }, { status: 400 });
+    }
+
+    const now = new Date();
+
+    const isReservedAndExpired =
+      product.status === "reserved" &&
+      product.reserved_until &&
+      new Date(product.reserved_until) < now;
+
+    if (
+      product.status !== "available" &&
+      !isReservedAndExpired
+    ) {
       return NextResponse.json({ error: "Unavailable" }, { status: 400 });
     }
 
@@ -66,7 +88,8 @@ export async function POST(req: NextRequest) {
     );
 
     if (!squareRes.ok) {
-      throw new Error(await squareRes.text());
+      const err = await squareRes.text();
+      throw new Error(err);
     }
 
     const squareData = await squareRes.json();
@@ -78,8 +101,8 @@ export async function POST(req: NextRequest) {
       throw new Error("Invalid Square response");
     }
 
-    // 🔑 CREATE ORDER *AFTER* WE HAVE square_order_id
-    const { data: order } = await supabase
+    // Create order AFTER we have square_order_id
+    await supabase
       .from("orders")
       .insert({
         product_id: product.id,
@@ -87,9 +110,7 @@ export async function POST(req: NextRequest) {
         fulfillment_method: fulfillment,
         square_order_id: squareOrderId,
         square_payment_link_id: paymentLink.id,
-      })
-      .select()
-      .single();
+      });
 
     return NextResponse.json({ url: paymentLink.url });
   } catch (err) {
