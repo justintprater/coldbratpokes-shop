@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   try {
     const { productId, fulfillment, quantity = 1 } = await req.json();
 
-    // 🔎 Fetch product
+    // Get product
     const { data: product, error } = await supabase
       .from("products")
       .select("*")
@@ -43,32 +43,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 🧾 Build Square order
-    const orderPayload: any = {
-      location_id: process.env.SQUARE_LOCATION_ID,
-      line_items: [
-        {
-          name: product.title,
-          quantity: quantity.toString(),
-          base_price_money: {
-            amount: product.price_cents,
-            currency: "USD",
-          },
+    // Build line items (NO manual shipping here)
+    const lineItems = [
+      {
+        name: product.title,
+        quantity: quantity.toString(),
+        base_price_money: {
+          amount: product.price_cents,
+          currency: "USD",
         },
-      ],
-    };
+      },
+    ];
 
-    // 🚚 Add fulfillment if shipping
-    if (fulfillment === "shipping") {
-      orderPayload.fulfillments = [
-        {
-          type: "SHIPMENT",
-          state: "PROPOSED",
-        },
-      ];
-    }
-
-    // 💳 Create Square payment link
+    // Create payment link
     const squareRes = await fetch(
       `${SQUARE_BASE_URL}/v2/online-checkout/payment-links`,
       {
@@ -78,7 +65,22 @@ export async function POST(req: NextRequest) {
           Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
         },
         body: JSON.stringify({
-          order: orderPayload,
+          order: {
+            location_id: process.env.SQUARE_LOCATION_ID,
+            line_items: lineItems,
+
+            // 🔥 THIS is what activates shipping properly
+            fulfillments:
+              fulfillment === "shipping"
+                ? [
+                    {
+                      type: "SHIPMENT",
+                      state: "PROPOSED",
+                    },
+                  ]
+                : [],
+          },
+
           checkout_options: {
             ask_for_shipping_address: fulfillment === "shipping",
             ask_for_email_address: true,
@@ -92,13 +94,16 @@ export async function POST(req: NextRequest) {
     if (!squareRes.ok) {
       const err = await squareRes.text();
       console.error("Square error:", err);
-      throw new Error("Square checkout failed");
+      return NextResponse.json(
+        { error: "Checkout failed" },
+        { status: 500 }
+      );
     }
 
     const squareData = await squareRes.json();
     const paymentLink = squareData.payment_link;
 
-    // 🗂 Store order in DB
+    // Save order in Supabase
     await supabase.from("orders").insert({
       product_id: product.id,
       quantity,
