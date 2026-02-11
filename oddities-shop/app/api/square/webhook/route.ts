@@ -110,6 +110,11 @@ console.log("Order found:", order);
 
 console.log("Sending email now...");
 
+console.log("Resend key exists:", !!process.env.RESEND_API_KEY);
+console.log("Resend key prefix:", process.env.RESEND_API_KEY?.slice(0, 6));
+
+
+
 
   await resend.emails.send({
     from: "onboarding@resend.dev",
