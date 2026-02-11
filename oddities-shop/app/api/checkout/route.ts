@@ -11,12 +11,11 @@ const SQUARE_BASE_URL =
     ? "https://connect.squareup.com"
     : "https://connect.squareupsandbox.com";
 
-const SHIPPING_FLAT_CENTS = 1000; // $10
-
 export async function POST(req: NextRequest) {
   try {
     const { productId, fulfillment, quantity = 1 } = await req.json();
 
+    // 🔎 Fetch product
     const { data: product, error } = await supabase
       .from("products")
       .select("*")
@@ -24,11 +23,17 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error || !product) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Product not found" },
+        { status: 404 }
+      );
     }
 
     if (product.status !== "available") {
-      return NextResponse.json({ error: "Product unavailable" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Product unavailable" },
+        { status: 400 }
+      );
     }
 
     if (product.quantity_available < quantity) {
@@ -38,29 +43,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const lineItems = [
-      {
-        name: product.title,
-        quantity: quantity.toString(),
-        base_price_money: {
-          amount: product.price_cents,
-          currency: "USD",
+    // 🧾 Build Square order
+    const orderPayload: any = {
+      location_id: process.env.SQUARE_LOCATION_ID,
+      line_items: [
+        {
+          name: product.title,
+          quantity: quantity.toString(),
+          base_price_money: {
+            amount: product.price_cents,
+            currency: "USD",
+          },
         },
-      },
-    ];
+      ],
+    };
 
-    // Add flat shipping if shipping selected
+    // 🚚 Add fulfillment if shipping
     if (fulfillment === "shipping") {
-      lineItems.push({
-        name: "Shipping",
-        quantity: "1",
-        base_price_money: {
-          amount: SHIPPING_FLAT_CENTS,
-          currency: "USD",
+      orderPayload.fulfillments = [
+        {
+          type: "SHIPMENT",
+          state: "PROPOSED",
         },
-      });
+      ];
     }
 
+    // 💳 Create Square payment link
     const squareRes = await fetch(
       `${SQUARE_BASE_URL}/v2/online-checkout/payment-links`,
       {
@@ -70,10 +78,7 @@ export async function POST(req: NextRequest) {
           Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
         },
         body: JSON.stringify({
-          order: {
-            location_id: process.env.SQUARE_LOCATION_ID,
-            line_items: lineItems,
-          },
+          order: orderPayload,
           checkout_options: {
             ask_for_shipping_address: fulfillment === "shipping",
             ask_for_email_address: true,
@@ -86,12 +91,14 @@ export async function POST(req: NextRequest) {
 
     if (!squareRes.ok) {
       const err = await squareRes.text();
-      throw new Error(err);
+      console.error("Square error:", err);
+      throw new Error("Square checkout failed");
     }
 
     const squareData = await squareRes.json();
     const paymentLink = squareData.payment_link;
 
+    // 🗂 Store order in DB
     await supabase.from("orders").insert({
       product_id: product.id,
       quantity,
@@ -104,6 +111,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ url: paymentLink.url });
   } catch (err) {
     console.error("Checkout error:", err);
-    return NextResponse.json({ error: "Checkout failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Checkout failed" },
+      { status: 500 }
+    );
   }
 }
