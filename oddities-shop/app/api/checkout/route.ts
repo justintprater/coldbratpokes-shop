@@ -11,6 +11,8 @@ const SQUARE_BASE_URL =
     ? "https://connect.squareup.com"
     : "https://connect.squareupsandbox.com";
 
+const SHIPPING_FLAT_CENTS = 1000; // $10
+
 export async function POST(req: NextRequest) {
   try {
     const { productId, fulfillment, quantity = 1 } = await req.json();
@@ -36,6 +38,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const lineItems = [
+      {
+        name: product.title,
+        quantity: quantity.toString(),
+        base_price_money: {
+          amount: product.price_cents,
+          currency: "USD",
+        },
+      },
+    ];
+
+    // Add flat shipping if shipping selected
+    if (fulfillment === "shipping") {
+      lineItems.push({
+        name: "Shipping",
+        quantity: "1",
+        base_price_money: {
+          amount: SHIPPING_FLAT_CENTS,
+          currency: "USD",
+        },
+      });
+    }
+
     const squareRes = await fetch(
       `${SQUARE_BASE_URL}/v2/online-checkout/payment-links`,
       {
@@ -47,16 +72,7 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           order: {
             location_id: process.env.SQUARE_LOCATION_ID,
-            line_items: [
-              {
-                name: product.title,
-                quantity: quantity.toString(),
-                base_price_money: {
-                  amount: product.price_cents,
-                  currency: "USD",
-                },
-              },
-            ],
+            line_items: lineItems,
           },
           checkout_options: {
             ask_for_shipping_address: fulfillment === "shipping",
