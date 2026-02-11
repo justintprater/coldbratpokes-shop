@@ -10,25 +10,31 @@ const supabase = createClient(
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
-function verifySignature(body: string, signature: string | null) {
+function verifySquareSignature(
+  rawBody: string,
+  signature: string | null
+) {
   if (!signature) return false;
 
-  const hmac = crypto.createHmac(
-    "sha256",
-    process.env.SQUARE_WEBHOOK_SIGNATURE_KEY!
-  );
+  const notificationUrl = process.env.SQUARE_WEBHOOK_NOTIFICATION_URL!;
+  const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY!;
 
-  hmac.update(body);
-  const digest = hmac.digest("base64");
+  const hmac = crypto.createHmac("sha256", signatureKey);
 
-  return digest === signature;
+  // THIS IS THE CRITICAL PART
+  hmac.update(notificationUrl + rawBody);
+
+  const expectedSignature = hmac.digest("base64");
+
+  return expectedSignature === signature;
 }
 
 export async function POST(req: NextRequest) {
   const signature = req.headers.get("x-square-hmacsha256-signature");
   const rawBody = await req.text();
 
-  if (!verifySignature(rawBody, signature)) {
+  if (!verifySquareSignature(rawBody, signature)) {
+    console.error("Invalid Square signature");
     return new NextResponse("Invalid signature", { status: 401 });
   }
 
@@ -73,7 +79,7 @@ export async function POST(req: NextRequest) {
     .eq("id", order.product_id)
     .single();
 
-  let newQuantity = product.quantity_available - order.quantity;
+  const newQuantity = product.quantity_available - order.quantity;
 
   if (newQuantity <= 0) {
     await supabase
