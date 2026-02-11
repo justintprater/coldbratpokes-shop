@@ -112,7 +112,7 @@ console.log("Sending email now...");
 
 
   await resend.emails.send({
-    from: process.env.OWNER_EMAIL!,
+    from: "onboarding@resend.dev",
     to: process.env.OWNER_EMAIL!,
     subject: "New Order Received",
     html: `
