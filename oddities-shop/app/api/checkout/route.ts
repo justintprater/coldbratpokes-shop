@@ -85,12 +85,6 @@ export async function POST(req: NextRequest) {
       square_order_id: paymentLink.order_id,
     });
 
-    console.log("Returning payment URL:", paymentLink.url);
-    console.log("SQUARE_ENV:", process.env.SQUARE_ENV);
-    console.log("SQUARE_BASE_URL:", SQUARE_BASE_URL);
-
-
-
     return NextResponse.json({ url: paymentLink.url });
   } catch (err) {
     console.error("Checkout error:", err);
