@@ -13,6 +13,9 @@ const SQUARE_BASE_URL =
 
 export async function POST(req: NextRequest) {
   try {
+
+    console.log("LOCATION ID BEING USED:", process.env.SQUARE_LOCATION_ID);
+    console.log("SQUARE ENV:", process.env.SQUARE_ENV);
     const { productId, fulfillment, quantity = 1 } = await req.json();
 
     // Get product
