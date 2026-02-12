@@ -32,9 +32,8 @@ export default function BuyButton({ productId }: { productId: string }) {
         return;
       }
 
-      // ✅ Real redirect (no debug)
+      // Redirect to Square checkout
       window.location.href = json.url;
-
     } catch (err) {
       console.error("Checkout error:", err);
       alert("Something went wrong starting checkout.");
@@ -44,7 +43,8 @@ export default function BuyButton({ productId }: { productId: string }) {
 
   return (
     <div>
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 16 }}>
+        {/* Shipping option */}
         <label style={{ display: "flex", gap: 8, cursor: "pointer" }}>
           <input
             type="radio"
@@ -54,13 +54,34 @@ export default function BuyButton({ productId }: { productId: string }) {
           Ship to me
         </label>
 
-        <label style={{ display: "flex", gap: 8, cursor: "pointer" }}>
+        {fulfillment === "shipping" && (
+          <div
+            style={{
+              fontSize: 14,
+              color: "#666",
+              marginTop: 6,
+              marginLeft: 24,
+            }}
+          >
+            $10 flat domestic shipping (U.S. only)
+          </div>
+        )}
+
+        {/* Pickup option */}
+        <label
+          style={{
+            display: "flex",
+            gap: 8,
+            cursor: "pointer",
+            marginTop: 12,
+          }}
+        >
           <input
             type="radio"
             checked={fulfillment === "pickup"}
             onChange={() => setFulfillment("pickup")}
           />
-          In-person pickup
+          In-person pickup (free)
         </label>
       </div>
 
