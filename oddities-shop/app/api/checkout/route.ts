@@ -11,18 +11,11 @@ const SQUARE_BASE_URL =
     ? "https://connect.squareup.com"
     : "https://connect.squareupsandbox.com";
 
+const SHIPPING_FLAT_CENTS = 1000; // $10
+
 export async function POST(req: NextRequest) {
   try {
-    console.log("=== CHECKOUT START ===");
-
-    const body = await req.json();
-    console.log("Incoming body:", body);
-
-    const { productId, fulfillment, quantity = 1 } = body;
-
-    if (!productId) {
-      return NextResponse.json({ error: "Missing productId" }, { status: 400 });
-    }
+    const { productId, fulfillment, quantity = 1 } = await req.json();
 
     const { data: product, error } = await supabase
       .from("products")
@@ -31,8 +24,10 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error || !product) {
-      console.error("Product fetch error:", error);
-      return NextResponse.json({ error: "Product not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Product not found" },
+        { status: 404 }
+      );
     }
 
     if (product.status !== "available") {
@@ -60,29 +55,16 @@ export async function POST(req: NextRequest) {
       },
     ];
 
-    const squarePayload = {
-      order: {
-        location_id: process.env.SQUARE_LOCATION_ID,
-        line_items: lineItems,
-        fulfillments:
-          fulfillment === "shipping"
-            ? [
-                {
-                  type: "SHIPMENT",
-                  state: "PROPOSED",
-                },
-              ]
-            : [],
-      },
-      checkout_options: {
-        ask_for_shipping_address: fulfillment === "shipping",
-        ask_for_email_address: true,
-        ask_for_phone_number: true,
-        redirect_url: `${process.env.NEXT_PUBLIC_SITE_URL}/thank-you`,
-      },
-    };
-
-    console.log("Sending to Square:", JSON.stringify(squarePayload, null, 2));
+    if (fulfillment === "shipping") {
+      lineItems.push({
+        name: "Standard Shipping",
+        quantity: "1",
+        base_price_money: {
+          amount: SHIPPING_FLAT_CENTS,
+          currency: "USD",
+        },
+      });
+    }
 
     const squareRes = await fetch(
       `${SQUARE_BASE_URL}/v2/online-checkout/payment-links`,
@@ -92,29 +74,31 @@ export async function POST(req: NextRequest) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
         },
-        body: JSON.stringify(squarePayload),
+        body: JSON.stringify({
+          order: {
+            location_id: process.env.SQUARE_LOCATION_ID,
+            line_items: lineItems,
+          },
+          checkout_options: {
+            ask_for_shipping_address: fulfillment === "shipping",
+            ask_for_email_address: true,
+            ask_for_phone_number: true,
+            redirect_url: `${process.env.NEXT_PUBLIC_SITE_URL}/thank-you`,
+          },
+        }),
       }
     );
 
-    const squareText = await squareRes.text();
-    console.log("Square raw response:", squareText);
-
     if (!squareRes.ok) {
+      const err = await squareRes.text();
+      console.error("Square error:", err);
       return NextResponse.json(
-        { error: "Square failed", details: squareText },
+        { error: "Checkout failed" },
         { status: 500 }
       );
     }
 
-    const squareData = JSON.parse(squareText);
-
-    if (!squareData.payment_link?.url) {
-      return NextResponse.json(
-        { error: "No payment link returned", squareData },
-        { status: 500 }
-      );
-    }
-
+    const squareData = await squareRes.json();
     const paymentLink = squareData.payment_link;
 
     await supabase.from("orders").insert({
@@ -126,13 +110,11 @@ export async function POST(req: NextRequest) {
       square_order_id: paymentLink.order_id,
     });
 
-    console.log("Returning URL:", paymentLink.url);
-
     return NextResponse.json({ url: paymentLink.url });
-  } catch (err: any) {
-    console.error("Checkout fatal error:", err);
+  } catch (err) {
+    console.error("Checkout error:", err);
     return NextResponse.json(
-      { error: "Checkout crashed", details: err?.message },
+      { error: "Checkout failed" },
       { status: 500 }
     );
   }
