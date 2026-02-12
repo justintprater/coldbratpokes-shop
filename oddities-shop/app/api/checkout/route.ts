@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -13,16 +14,8 @@ const SQUARE_BASE_URL =
 
 export async function POST(req: NextRequest) {
   try {
-    console.log("========== CHECKOUT DEBUG ==========");
-    console.log("SQUARE_ENV:", process.env.SQUARE_ENV);
-    console.log("SQUARE_LOCATION_ID:", process.env.SQUARE_LOCATION_ID);
-    console.log("SQUARE_ACCESS_TOKEN EXISTS:", !!process.env.SQUARE_ACCESS_TOKEN);
-    console.log("====================================");
+    const { productId } = await req.json();
 
-    const { productId, fulfillment, quantity = 1 } = await req.json();
-
-
-    // Get product
     const { data: product, error } = await supabase
       .from("products")
       .select("*")
@@ -43,86 +36,58 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (product.quantity_available < quantity) {
-      return NextResponse.json(
-        { error: "Not enough inventory" },
-        { status: 400 }
-      );
-    }
-
-    // Build line items (NO manual shipping here)
-    const lineItems = [
-      {
-        name: product.title,
-        quantity: quantity.toString(),
-        base_price_money: {
-          amount: product.price_cents,
-          currency: "USD",
-        },
-      },
-    ];
-
-    // Create payment link
-    const squareRes = await fetch(
+    const response = await fetch(
       `${SQUARE_BASE_URL}/v2/online-checkout/payment-links`,
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          idempotency_key: crypto.randomUUID(),
           order: {
             location_id: process.env.SQUARE_LOCATION_ID,
-            line_items: lineItems,
-
-            // 🔥 THIS is what activates shipping properly
-            fulfillments:
-              fulfillment === "shipping"
-                ? [
-                    {
-                      type: "SHIPMENT",
-                      state: "PROPOSED",
-                    },
-                  ]
-                : [],
+            line_items: [
+              {
+                name: product.title,
+                quantity: "1",
+                base_price_money: {
+                  amount: product.price_cents,
+                  currency: "USD",
+                },
+              },
+            ],
           },
-
           checkout_options: {
-            ask_for_shipping_address: fulfillment === "shipping",
-            ask_for_email_address: true,
-            ask_for_phone_number: true,
             redirect_url: `${process.env.NEXT_PUBLIC_SITE_URL}/thank-you`,
           },
         }),
       }
     );
 
-    if (!squareRes.ok) {
-      const err = await squareRes.text();
-      console.error("Square error:", err);
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("Square error:", data);
       return NextResponse.json(
-        { error: "Checkout failed" },
+        { error: "Square checkout failed" },
         { status: 500 }
       );
     }
 
-    const squareData = await squareRes.json();
-    const paymentLink = squareData.payment_link;
-
-    // Save order in Supabase
     await supabase.from("orders").insert({
       product_id: product.id,
-      quantity,
-      fulfillment_method: fulfillment,
+      quantity: 1,
+      fulfillment_method: "shipping",
       status: "created",
-      square_payment_link_id: paymentLink.id,
-      square_order_id: paymentLink.order_id,
+      square_payment_link_id: data.payment_link.id,
+      square_order_id: data.payment_link.order_id,
     });
 
-    return NextResponse.json({ url: paymentLink.url });
+    return NextResponse.json({ url: data.payment_link.url });
   } catch (err) {
-    console.error("Checkout error:", err);
+    console.error(err);
     return NextResponse.json(
       { error: "Checkout failed" },
       { status: 500 }
