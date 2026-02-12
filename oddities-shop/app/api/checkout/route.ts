@@ -13,10 +13,14 @@ const SQUARE_BASE_URL =
 
 export async function POST(req: NextRequest) {
   try {
+    console.log("========== CHECKOUT DEBUG ==========");
+    console.log("SQUARE_ENV:", process.env.SQUARE_ENV);
+    console.log("SQUARE_LOCATION_ID:", process.env.SQUARE_LOCATION_ID);
+    console.log("SQUARE_ACCESS_TOKEN EXISTS:", !!process.env.SQUARE_ACCESS_TOKEN);
+    console.log("====================================");
 
-    console.log("LOCATION ID BEING USED:", process.env.SQUARE_LOCATION_ID);
-    console.log("SQUARE ENV:", process.env.SQUARE_ENV);
     const { productId, fulfillment, quantity = 1 } = await req.json();
+
 
     // Get product
     const { data: product, error } = await supabase
