@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     const locationId = process.env.SQUARE_LOCATION_ID;
 
     if (!locationId) {
-      console.error("SQUARE_LOCATION_ID is missing");
+      console.error("Missing SQUARE_LOCATION_ID");
       return NextResponse.json(
         { error: "Server configuration error" },
         { status: 500 }
@@ -89,36 +89,7 @@ export async function POST(req: Request) {
             },
           ];
 
-    // ✅ CREATE ORDER (with guaranteed locationId)
-    const createOrderRes = await fetch(`${SQUARE_BASE}/v2/orders`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        idempotency_key: randomUUID(),
-        order: {
-          location_id: locationId,
-          line_items: lineItems,
-          fulfillments,
-        },
-      }),
-    });
-
-    const orderData = await createOrderRes.json();
-
-    if (!createOrderRes.ok) {
-      console.error("Square order error:", orderData);
-      return NextResponse.json(
-        { error: "Square order creation failed" },
-        { status: 500 }
-      );
-    }
-
-    const squareOrderId = orderData.order.id;
-
-    // ✅ CREATE PAYMENT LINK (also with locationId)
+    // ✅ CREATE PAYMENT LINK DIRECTLY (NO SEPARATE ORDER CALL)
     const createPaymentLinkRes = await fetch(
       `${SQUARE_BASE}/v2/online-checkout/payment-links`,
       {
@@ -130,8 +101,9 @@ export async function POST(req: Request) {
         body: JSON.stringify({
           idempotency_key: randomUUID(),
           order: {
-            id: squareOrderId,
             location_id: locationId,
+            line_items: lineItems,
+            fulfillments,
           },
         }),
       }
@@ -149,7 +121,9 @@ export async function POST(req: Request) {
 
     const paymentLinkUrl = paymentLinkData.payment_link.url;
     const paymentLinkId = paymentLinkData.payment_link.id;
+    const squareOrderId = paymentLinkData.payment_link.order_id;
 
+    // Save order locally
     const orderId = randomUUID();
 
     await supabaseAdmin.from("orders").insert({
