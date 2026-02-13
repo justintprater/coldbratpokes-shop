@@ -1,14 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabaseClient";
 
 type CartItem = {
   productId: string;
   quantity: number;
 };
 
+type Product = {
+  id: string;
+  title: string;
+  price_cents: number;
+  quantity_available: number;
+  product_images?: { url: string | null }[] | null;
+};
+
 export default function CartPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [products, setProducts] = useState<Record<string, Product>>({});
   const [loading, setLoading] = useState(false);
   const [fulfillment, setFulfillment] = useState<"shipping" | "pickup">(
     "shipping"
@@ -19,22 +29,63 @@ export default function CartPage() {
     setCart(stored);
   }, []);
 
+  useEffect(() => {
+    async function fetchProducts() {
+      if (cart.length === 0) return;
+
+      const ids = cart.map((item) => item.productId);
+
+      const { data } = await supabase
+        .from("products")
+        .select(
+          `
+          id,
+          title,
+          price_cents,
+          quantity_available,
+          product_images ( url )
+        `
+        )
+        .in("id", ids);
+
+      if (data) {
+        const map: Record<string, Product> = {};
+        data.forEach((p) => {
+          map[p.id] = p as Product;
+        });
+        setProducts(map);
+      }
+    }
+
+    fetchProducts();
+  }, [cart]);
+
   function updateCart(newCart: CartItem[]) {
     setCart(newCart);
     localStorage.setItem("cart", JSON.stringify(newCart));
+    window.dispatchEvent(new Event("storage"));
   }
 
   function removeItem(productId: string) {
-    const updated = cart.filter((item) => item.productId !== productId);
-    updateCart(updated);
+    updateCart(cart.filter((item) => item.productId !== productId));
   }
 
   function changeQty(productId: string, delta: number) {
     const updated = cart.map((item) =>
       item.productId === productId
-        ? { ...item, quantity: Math.max(1, item.quantity + delta) }
+        ? {
+            ...item,
+            quantity: Math.max(
+              1,
+              Math.min(
+                products[productId]?.quantity_available ?? item.quantity,
+                item.quantity + delta
+              )
+            ),
+          }
         : item
     );
+
     updateCart(updated);
   }
 
@@ -62,6 +113,8 @@ export default function CartPage() {
       }
 
       localStorage.removeItem("cart");
+      window.dispatchEvent(new Event("storage"));
+
       window.location.href = json.checkoutUrl;
     } catch (err) {
       console.error(err);
@@ -69,6 +122,12 @@ export default function CartPage() {
       setLoading(false);
     }
   }
+
+  const total = cart.reduce((sum, item) => {
+    const product = products[item.productId];
+    if (!product) return sum;
+    return sum + product.price_cents * item.quantity;
+  }, 0);
 
   return (
     <main className="container">
@@ -78,36 +137,65 @@ export default function CartPage() {
         <p>Your cart is empty.</p>
       ) : (
         <>
-          {cart.map((item) => (
-            <div
-              key={item.productId}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: 12,
-              }}
-            >
-              <div>
-                <div>{item.productId}</div>
-                <div>Qty: {item.quantity}</div>
-              </div>
+          {cart.map((item) => {
+            const product = products[item.productId];
+            if (!product) return null;
 
-              <div>
-                <button onClick={() => changeQty(item.productId, -1)}>
-                  -
-                </button>
-                <button onClick={() => changeQty(item.productId, 1)}>
-                  +
-                </button>
+            const imgUrl = product.product_images?.[0]?.url ?? null;
+
+            return (
+              <div
+                key={item.productId}
+                style={{
+                  display: "flex",
+                  gap: 16,
+                  alignItems: "center",
+                  marginBottom: 20,
+                }}
+              >
+                {imgUrl && (
+                  <img
+                    src={imgUrl}
+                    alt={product.title}
+                    style={{
+                      width: 80,
+                      height: 80,
+                      objectFit: "cover",
+                      borderRadius: 8,
+                    }}
+                  />
+                )}
+
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600 }}>{product.title}</div>
+                  <div style={{ fontSize: 14, opacity: 0.7 }}>
+                    ${(product.price_cents / 100).toFixed(2)}
+                  </div>
+
+                  <div style={{ marginTop: 6 }}>
+                    <button onClick={() => changeQty(item.productId, -1)}>
+                      -
+                    </button>
+                    <span style={{ margin: "0 10px" }}>
+                      {item.quantity}
+                    </span>
+                    <button onClick={() => changeQty(item.productId, 1)}>
+                      +
+                    </button>
+                  </div>
+                </div>
+
                 <button onClick={() => removeItem(item.productId)}>
                   Remove
                 </button>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
-          <div style={{ marginTop: 24 }}>
-            <label style={{ display: "block", marginBottom: 8 }}>
+          <hr style={{ margin: "24px 0" }} />
+
+          <div style={{ marginBottom: 16 }}>
+            <label>
               <input
                 type="radio"
                 checked={fulfillment === "shipping"}
@@ -116,7 +204,9 @@ export default function CartPage() {
               Ship to me ($10 flat)
             </label>
 
-            <label style={{ display: "block", marginBottom: 16 }}>
+            <br />
+
+            <label>
               <input
                 type="radio"
                 checked={fulfillment === "pickup"}
@@ -124,15 +214,19 @@ export default function CartPage() {
               />
               In-person pickup (free)
             </label>
-
-            <button
-              onClick={handleCheckout}
-              disabled={loading}
-              className="buyBtn"
-            >
-              {loading ? "Redirecting…" : "Checkout"}
-            </button>
           </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <strong>Total: ${(total / 100).toFixed(2)}</strong>
+          </div>
+
+          <button
+            onClick={handleCheckout}
+            disabled={loading}
+            className="buyBtn"
+          >
+            {loading ? "Redirecting…" : "Checkout"}
+          </button>
         </>
       )}
     </main>
