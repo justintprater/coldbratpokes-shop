@@ -48,7 +48,7 @@ export async function POST(req: Request) {
         quantity: quantity.toString(),
         base_price_money: {
           amount: product.price_cents,
-          currency: product.currency || "USD",
+          currency: (product.currency || "USD").toUpperCase(),
         },
       });
     }
