@@ -39,8 +39,10 @@ export default function RootLayout({
             borderBottom: "1px solid var(--border)",
           }}
         >
+          {/* Left side (empty for balance) */}
           <div />
 
+          {/* Center Brand */}
           <Link
             href="/"
             style={{
@@ -54,7 +56,27 @@ export default function RootLayout({
             ColdBratPokes
           </Link>
 
-          <div style={{ textAlign: "right" }}>
+          {/* Right side links */}
+          <div
+            style={{
+              textAlign: "right",
+              display: "flex",
+              gap: 18,
+              justifyContent: "flex-end",
+              alignItems: "center",
+            }}
+          >
+            <Link
+              href="/cart"
+              style={{
+                fontSize: 14,
+                color: "inherit",
+                textDecoration: "none",
+              }}
+            >
+              Cart
+            </Link>
+
             <Link
               href="/contact"
               style={{
