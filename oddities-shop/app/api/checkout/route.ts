@@ -20,6 +20,7 @@ export async function POST(req: Request) {
 
     const lineItems: any[] = [];
 
+    // 🔍 Validate products + build Square line items
     for (const item of items) {
       const { productId, quantity = 1 } = item;
 
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // 🔥 Build fulfillment correctly
+    // 🔥 Fulfillment logic
     const fulfillments =
       fulfillment === "shipping"
         ? [
@@ -109,7 +110,7 @@ export async function POST(req: Request) {
 
     const squareOrderId = orderData.order.id;
 
-    // 2️⃣ Create Payment Link
+    // 2️⃣ Create Payment Link (FIXED FORMAT)
     const createPaymentLinkRes = await fetch(
       `${SQUARE_BASE}/v2/online-checkout/payment-links`,
       {
@@ -120,7 +121,9 @@ export async function POST(req: Request) {
         },
         body: JSON.stringify({
           idempotency_key: randomUUID(),
-          order_id: squareOrderId,
+          order: {
+            id: squareOrderId,
+          },
         }),
       }
     );
@@ -138,7 +141,7 @@ export async function POST(req: Request) {
     const paymentLinkUrl = paymentLinkData.payment_link.url;
     const paymentLinkId = paymentLinkData.payment_link.id;
 
-    // 3️⃣ Create Parent Order in Supabase
+    // 3️⃣ Save Order in Supabase
     const orderId = randomUUID();
 
     await supabaseAdmin.from("orders").insert({
