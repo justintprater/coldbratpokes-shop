@@ -1,116 +1,130 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
+import { Client, Environment } from "square";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const square = new Client({
+  environment:
+    process.env.SQUARE_ENV === "production"
+      ? Environment.Production
+      : Environment.Sandbox,
+  accessToken: process.env.SQUARE_ACCESS_TOKEN!,
+});
 
-const SQUARE_BASE_URL =
-  process.env.SQUARE_ENV === "production"
-    ? "https://connect.squareup.com"
-    : "https://connect.squareupsandbox.com";
+const locationId = process.env.SQUARE_LOCATION_ID!;
 
-const SHIPPING_FLAT_CENTS = 1000; // $10
-
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const { productId, fulfillment, quantity = 1 } = await req.json();
+    const { items, fulfillment = "shipping" } = await req.json();
 
-    const { data: product, error } = await supabase
-      .from("products")
-      .select("*")
-      .eq("id", productId)
-      .single();
-
-    if (error || !product) {
+    if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
-        { error: "Product not found" },
-        { status: 404 }
-      );
-    }
-
-    if (product.status !== "available") {
-      return NextResponse.json(
-        { error: "Product unavailable" },
+        { error: "No items provided" },
         { status: 400 }
       );
     }
 
-    if (product.quantity_available < quantity) {
-      return NextResponse.json(
-        { error: "Not enough inventory" },
-        { status: 400 }
-      );
-    }
+    const lineItems: any[] = [];
+    let totalAmount = 0;
 
-    const lineItems = [
-      {
+    // Validate products and build Square line items
+    for (const item of items) {
+      const { productId, quantity = 1 } = item;
+
+      const { data: product, error } = await supabaseAdmin
+        .from("products")
+        .select("*")
+        .eq("id", productId)
+        .single();
+
+      if (error || !product) {
+        return NextResponse.json(
+          { error: "Product not found" },
+          { status: 404 }
+        );
+      }
+
+      if (product.quantity_available < quantity) {
+        return NextResponse.json(
+          { error: `${product.title} is out of stock` },
+          { status: 400 }
+        );
+      }
+
+      const itemTotal = product.price_cents * quantity;
+      totalAmount += itemTotal;
+
+      lineItems.push({
         name: product.title,
         quantity: quantity.toString(),
-        base_price_money: {
+        basePriceMoney: {
           amount: product.price_cents,
-          currency: "USD",
-        },
-      },
-    ];
-
-    if (fulfillment === "shipping") {
-      lineItems.push({
-        name: "Standard Shipping",
-        quantity: "1",
-        base_price_money: {
-          amount: SHIPPING_FLAT_CENTS,
-          currency: "USD",
+          currency: product.currency || "USD",
         },
       });
     }
 
-    const squareRes = await fetch(
-      `${SQUARE_BASE_URL}/v2/online-checkout/payment-links`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
-        },
-        body: JSON.stringify({
-          order: {
-            location_id: process.env.SQUARE_LOCATION_ID,
-            line_items: lineItems,
+    // Create Square order
+    const squareOrder = await square.ordersApi.createOrder({
+      order: {
+        locationId,
+        lineItems,
+        fulfillments: [
+          {
+            type: "SHIPMENT",
+            state: "PROPOSED",
           },
-          checkout_options: {
-            ask_for_shipping_address: fulfillment === "shipping",
-            ask_for_email_address: true,
-            ask_for_phone_number: true,
-            redirect_url: `${process.env.NEXT_PUBLIC_SITE_URL}/thank-you`,
-          },
-        }),
-      }
-    );
-
-    if (!squareRes.ok) {
-      const err = await squareRes.text();
-      console.error("Square error:", err);
-      return NextResponse.json(
-        { error: "Checkout failed" },
-        { status: 500 }
-      );
-    }
-
-    const squareData = await squareRes.json();
-    const paymentLink = squareData.payment_link;
-
-    await supabase.from("orders").insert({
-      product_id: product.id,
-      quantity,
-      fulfillment_method: fulfillment,
-      status: "created",
-      square_payment_link_id: paymentLink.id,
-      square_order_id: paymentLink.order_id,
+        ],
+      },
+      idempotencyKey: randomUUID(),
     });
 
-    return NextResponse.json({ url: paymentLink.url });
+    const squareOrderId = squareOrder.result.order?.id;
+
+    // Create Square payment link
+    const paymentLink = await square.checkoutApi.createPaymentLink({
+      idempotencyKey: randomUUID(),
+      order: {
+        id: squareOrderId!,
+      },
+    });
+
+    // Create parent order in Supabase
+    const orderId = randomUUID();
+
+    await supabaseAdmin.from("orders").insert({
+      id: orderId,
+      square_order_id: squareOrderId,
+      square_payment_link_id: paymentLink.result.paymentLink?.id,
+      status: "created",
+      fulfillment_method: fulfillment,
+    });
+
+    // Insert order_items
+    const orderItemsInsert = [];
+
+    for (const item of items) {
+      const { productId, quantity = 1 } = item;
+
+      const { data: product } = await supabaseAdmin
+        .from("products")
+        .select("*")
+        .eq("id", productId)
+        .single();
+
+      orderItemsInsert.push({
+        order_id: orderId,
+        product_id: productId,
+        quantity,
+        price_cents: product!.price_cents,
+      });
+    }
+
+    await supabaseAdmin.from("order_items").insert(orderItemsInsert);
+
+    return NextResponse.json({
+      checkoutUrl: paymentLink.result.paymentLink?.url,
+    });
   } catch (err) {
     console.error("Checkout error:", err);
     return NextResponse.json(
