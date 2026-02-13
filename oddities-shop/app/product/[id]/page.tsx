@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 import BuyButton from "./BuyButton";
@@ -11,6 +12,7 @@ type ProductRow = {
   price_cents: number;
   status: "available" | "reserved" | "sold" | "hidden";
   description: string | null;
+  quantity_available: number;
   product_images?: ProductImage[] | null;
 };
 
@@ -23,16 +25,7 @@ export default async function ProductPage({
   const id = p.id;
 
   if (!id) {
-    return (
-      <main className="container">
-        <Link href="/" style={{ color: "var(--muted)" }}>
-          ← Back
-        </Link>
-        <p style={{ marginTop: 16, color: "var(--muted)" }}>
-          Missing product id in the URL.
-        </p>
-      </main>
-    );
+    return <main className="container">Missing product id.</main>;
   }
 
   const { data, error } = await supabase
@@ -44,6 +37,7 @@ export default async function ProductPage({
       price_cents,
       status,
       description,
+      quantity_available,
       product_images ( url )
     `
     )
@@ -51,21 +45,7 @@ export default async function ProductPage({
     .single();
 
   if (error || !data) {
-    return (
-      <main className="container">
-        <Link href="/" style={{ color: "var(--muted)" }}>
-          ← Back
-        </Link>
-        <p style={{ marginTop: 16, color: "var(--muted)" }}>
-          Product not found.
-        </p>
-        {error ? (
-          <pre style={{ whiteSpace: "pre-wrap" }}>
-            {JSON.stringify({ id, error }, null, 2)}
-          </pre>
-        ) : null}
-      </main>
-    );
+    return <main className="container">Product not found.</main>;
   }
 
   const product = data as ProductRow;
@@ -75,35 +55,25 @@ export default async function ProductPage({
     .filter((u): u is string => Boolean(u));
   const mainImg = images[0];
 
-  const isSold = product.status === "sold";
+  const isSold = product.quantity_available <= 0;
   const isReserved = product.status === "reserved";
 
   return (
     <main className="container">
-      <Link href="/" style={{ color: "var(--muted)", textDecoration: "none" }}>
-        ← Back to shop
-      </Link>
+      <Link href="/">← Back to shop</Link>
 
       <div className="productLayout" style={{ marginTop: 18 }}>
         <div className="productMedia">
           {mainImg ? (
-            // eslint-disable-next-line @next/next/no-img-element
             <img src={mainImg} alt={product.title} />
           ) : (
-            <div
-              style={{
-                height: "100%",
-                display: "grid",
-                placeItems: "center",
-                color: "var(--muted)",
-              }}
-            >
-              No image yet
-            </div>
+            <div>No image yet</div>
           )}
 
           {isSold && <div className="soldOverlay">SOLD</div>}
-          {isReserved && <div className="soldOverlay">RESERVED</div>}
+          {isReserved && !isSold && (
+            <div className="soldOverlay">RESERVED</div>
+          )}
         </div>
 
         <div>
@@ -111,27 +81,19 @@ export default async function ProductPage({
 
           <div className="productMeta">
             <span className="pinkDot" />
-            <span style={{ color: "var(--muted)" }}>
+            <span>
               {isSold
                 ? "sold"
                 : isReserved
                 ? "reserved"
-                : "available"}{" "}
-              • one-of-one
+                : product.quantity_available === 1
+                ? "1 left"
+                : `${product.quantity_available} in stock`}
             </span>
           </div>
 
           <div className="productPrice">${price}</div>
 
-          {product.description ? (
-            <p className="productDesc">{product.description}</p>
-          ) : (
-            <p className="productDesc" style={{ color: "var(--muted)" }}>
-              (No description yet)
-            </p>
-          )}
-
-          {/* Buy button */}
           {!isSold && !isReserved ? (
             <BuyButton productId={product.id} />
           ) : (

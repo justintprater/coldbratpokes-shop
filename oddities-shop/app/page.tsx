@@ -1,13 +1,10 @@
-export const dynamic = "force-dynamic"; // Ensure this page is always server-rendered
+export const dynamic = "force-dynamic";
+
 import { supabaseServer } from "../lib/supabaseServer";
 import ShopTabs, { type ProductRow } from "./ShopTabs";
 
 export default async function Home() {
-  /**
-   * 🔁 AUTO-RELEASE EXPIRED RESERVATIONS
-   * If reserved_until is in the past, make it available again.
-   * This runs safely on every page load.
-   */
+  // Auto-release expired reservations
   await supabaseServer
     .from("products")
     .update({
@@ -17,9 +14,7 @@ export default async function Home() {
     .eq("status", "reserved")
     .lt("reserved_until", new Date().toISOString());
 
-  /**
-   * 🛒 FETCH PRODUCTS
-   */
+  // Fetch products (now includes quantity)
   const { data, error } = await supabaseServer
     .from("products")
     .select(
@@ -28,6 +23,7 @@ export default async function Home() {
       title,
       price_cents,
       status,
+      quantity_available,
       product_images ( url )
     `
     )

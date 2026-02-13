@@ -10,6 +10,7 @@ export type ProductRow = {
   title: string;
   price_cents: number;
   status: "available" | "reserved" | "sold" | "hidden";
+  quantity_available: number;
   product_images?: ProductImage[] | null;
 };
 
@@ -19,11 +20,15 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
   const filtered = useMemo(() => {
     if (tab === "available") {
       return products.filter(
-        (p) => p.status === "available" || p.status === "reserved"
+        (p) =>
+          (p.status === "available" || p.status === "reserved") &&
+          p.quantity_available > 0
       );
     }
 
-    return products.filter((p) => p.status === "sold");
+    return products.filter(
+      (p) => p.status === "sold" || p.quantity_available <= 0
+    );
   }, [products, tab]);
 
   return (
@@ -58,7 +63,8 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
             {filtered.map((p) => {
               const imgUrl = p.product_images?.[0]?.url ?? null;
               const price = (p.price_cents / 100).toFixed(2);
-              const isSold = p.status === "sold";
+
+              const isSold = p.quantity_available <= 0;
               const isReserved = p.status === "reserved";
 
               return (
@@ -82,7 +88,9 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
                     )}
 
                     {isSold && <div className="soldOverlay">SOLD</div>}
-                    {isReserved && <div className="soldOverlay">RESERVED</div>}
+                    {isReserved && !isSold && (
+                      <div className="soldOverlay">RESERVED</div>
+                    )}
                   </div>
 
                   <div style={{ marginTop: 10 }}>
@@ -96,8 +104,9 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
                         ? "sold"
                         : isReserved
                         ? "reserved"
-                        : "available"}{" "}
-                      • one-of-one
+                        : p.quantity_available === 1
+                        ? "1 left"
+                        : `${p.quantity_available} in stock`}
                     </div>
 
                     <div style={{ marginTop: 8, fontFamily: "monospace" }}>
