@@ -9,6 +9,16 @@ const SQUARE_BASE =
 
 export async function POST(req: Request) {
   try {
+    const locationId = process.env.SQUARE_LOCATION_ID;
+
+    if (!locationId) {
+      console.error("SQUARE_LOCATION_ID is missing");
+      return NextResponse.json(
+        { error: "Server configuration error" },
+        { status: 500 }
+      );
+    }
+
     const { items, fulfillment = "shipping" } = await req.json();
 
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -20,7 +30,6 @@ export async function POST(req: Request) {
 
     const lineItems: any[] = [];
 
-    // 🔍 Validate products + build Square line items
     for (const item of items) {
       const { productId, quantity = 1 } = item;
 
@@ -54,7 +63,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // 🔥 Fulfillment logic
     const fulfillments =
       fulfillment === "shipping"
         ? [
@@ -81,7 +89,7 @@ export async function POST(req: Request) {
             },
           ];
 
-    // 1️⃣ Create Square Order
+    // ✅ CREATE ORDER (with guaranteed locationId)
     const createOrderRes = await fetch(`${SQUARE_BASE}/v2/orders`, {
       method: "POST",
       headers: {
@@ -91,7 +99,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         idempotency_key: randomUUID(),
         order: {
-          location_id: process.env.SQUARE_LOCATION_ID,
+          location_id: locationId,
           line_items: lineItems,
           fulfillments,
         },
@@ -110,7 +118,7 @@ export async function POST(req: Request) {
 
     const squareOrderId = orderData.order.id;
 
-    // 2️⃣ Create Payment Link (FIXED WITH location_id)
+    // ✅ CREATE PAYMENT LINK (also with locationId)
     const createPaymentLinkRes = await fetch(
       `${SQUARE_BASE}/v2/online-checkout/payment-links`,
       {
@@ -123,8 +131,8 @@ export async function POST(req: Request) {
           idempotency_key: randomUUID(),
           order: {
             id: squareOrderId,
+            location_id: locationId,
           },
-          location_id: process.env.SQUARE_LOCATION_ID, // 🔥 REQUIRED
         }),
       }
     );
@@ -142,7 +150,6 @@ export async function POST(req: Request) {
     const paymentLinkUrl = paymentLinkData.payment_link.url;
     const paymentLinkId = paymentLinkData.payment_link.id;
 
-    // 3️⃣ Save Order in Supabase
     const orderId = randomUUID();
 
     await supabaseAdmin.from("orders").insert({
@@ -153,7 +160,6 @@ export async function POST(req: Request) {
       fulfillment_method: fulfillment,
     });
 
-    // 4️⃣ Insert order_items
     const orderItemsInsert = [];
 
     for (const item of items) {
