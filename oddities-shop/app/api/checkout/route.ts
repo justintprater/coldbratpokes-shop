@@ -110,7 +110,7 @@ export async function POST(req: Request) {
 
     const squareOrderId = orderData.order.id;
 
-    // 2️⃣ Create Payment Link (FIXED FORMAT)
+    // 2️⃣ Create Payment Link (FIXED WITH location_id)
     const createPaymentLinkRes = await fetch(
       `${SQUARE_BASE}/v2/online-checkout/payment-links`,
       {
@@ -124,6 +124,7 @@ export async function POST(req: Request) {
           order: {
             id: squareOrderId,
           },
+          location_id: process.env.SQUARE_LOCATION_ID, // 🔥 REQUIRED
         }),
       }
     );
