@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Cinzel_Decorative, Inter } from "next/font/google";
 import Link from "next/link";
+import CartIndicator from "./components/CartIndicator";
 import "./globals.css";
 
 /* Gothic display font for brand/title */
@@ -66,16 +67,8 @@ export default function RootLayout({
               alignItems: "center",
             }}
           >
-            <Link
-              href="/cart"
-              style={{
-                fontSize: 14,
-                color: "inherit",
-                textDecoration: "none",
-              }}
-            >
-              Cart
-            </Link>
+            {/* Dynamic Cart Indicator */}
+            <CartIndicator />
 
             <Link
               href="/contact"

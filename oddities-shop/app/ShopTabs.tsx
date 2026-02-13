@@ -21,14 +21,12 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
     if (tab === "available") {
       return products.filter(
         (p) =>
-          (p.status === "available" || p.status === "reserved") &&
+          p.status !== "hidden" &&
           p.quantity_available > 0
       );
     }
 
-    return products.filter(
-      (p) => p.status === "sold" || p.quantity_available <= 0
-    );
+    return products.filter((p) => p.quantity_available <= 0);
   }, [products, tab]);
 
   return (
@@ -71,19 +69,10 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
                 <Link key={p.id} href={`/product/${p.id}`} className="card">
                   <div className="media">
                     {imgUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={imgUrl} alt={p.title} />
                     ) : (
-                      <div
-                        style={{
-                          height: "100%",
-                          display: "grid",
-                          placeItems: "center",
-                          color: "var(--muted)",
-                          fontSize: 12,
-                        }}
-                      >
-                        No image yet
+                      <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
+                        No image
                       </div>
                     )}
 
@@ -99,7 +88,6 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
                     </div>
 
                     <div className="badge">
-                      <span className="pinkDot" />
                       {isSold
                         ? "sold"
                         : isReserved
