@@ -1,17 +1,11 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { Client, Environment } from "square";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-const square = new Client({
-  environment:
-    process.env.SQUARE_ENV === "production"
-      ? Environment.Production
-      : Environment.Sandbox,
-  accessToken: process.env.SQUARE_ACCESS_TOKEN!,
-});
-
-const locationId = process.env.SQUARE_LOCATION_ID!;
+const SQUARE_BASE =
+  process.env.SQUARE_ENV === "production"
+    ? "https://connect.squareup.com"
+    : "https://connect.squareupsandbox.com";
 
 export async function POST(req: Request) {
   try {
@@ -27,7 +21,7 @@ export async function POST(req: Request) {
     const lineItems: any[] = [];
     let totalAmount = 0;
 
-    // Validate products and build Square line items
+    // Validate products + build Square line items
     for (const item of items) {
       const { productId, quantity = 1 } = item;
 
@@ -51,56 +45,93 @@ export async function POST(req: Request) {
         );
       }
 
-      const itemTotal = product.price_cents * quantity;
-      totalAmount += itemTotal;
+      totalAmount += product.price_cents * quantity;
 
       lineItems.push({
         name: product.title,
         quantity: quantity.toString(),
-        basePriceMoney: {
+        base_price_money: {
           amount: product.price_cents,
           currency: product.currency || "USD",
         },
       });
     }
 
-    // Create Square order
-    const squareOrder = await square.ordersApi.createOrder({
-      order: {
-        locationId,
-        lineItems,
-        fulfillments: [
-          {
-            type: "SHIPMENT",
-            state: "PROPOSED",
-          },
-        ],
+    // 1️⃣ Create Square Order
+    const createOrderRes = await fetch(`${SQUARE_BASE}/v2/orders`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
+        "Content-Type": "application/json",
       },
-      idempotencyKey: randomUUID(),
+      body: JSON.stringify({
+        idempotency_key: randomUUID(),
+        order: {
+          location_id: process.env.SQUARE_LOCATION_ID,
+          line_items: lineItems,
+          fulfillments: [
+            {
+              type: "SHIPMENT",
+              state: "PROPOSED",
+            },
+          ],
+        },
+      }),
     });
 
-    const squareOrderId = squareOrder.result.order?.id;
+    const orderData = await createOrderRes.json();
 
-    // Create Square payment link
-    const paymentLink = await square.checkoutApi.createPaymentLink({
-      idempotencyKey: randomUUID(),
-      order: {
-        id: squareOrderId!,
-      },
-    });
+    if (!createOrderRes.ok) {
+      console.error("Square order error:", orderData);
+      return NextResponse.json(
+        { error: "Square order creation failed" },
+        { status: 500 }
+      );
+    }
 
-    // Create parent order in Supabase
+    const squareOrderId = orderData.order.id;
+
+    // 2️⃣ Create Payment Link
+    const createPaymentLinkRes = await fetch(
+      `${SQUARE_BASE}/v2/online-checkout/payment-links`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          idempotency_key: randomUUID(),
+          order_id: squareOrderId,
+        }),
+      }
+    );
+
+    const paymentLinkData = await createPaymentLinkRes.json();
+
+    if (!createPaymentLinkRes.ok) {
+      console.error("Square payment link error:", paymentLinkData);
+      return NextResponse.json(
+        { error: "Square payment link failed" },
+        { status: 500 }
+      );
+    }
+
+    const paymentLinkUrl = paymentLinkData.payment_link.url;
+    const paymentLinkId = paymentLinkData.payment_link.id;
+
+    // 3️⃣ Create Parent Order in Supabase
     const orderId = randomUUID();
 
     await supabaseAdmin.from("orders").insert({
       id: orderId,
       square_order_id: squareOrderId,
-      square_payment_link_id: paymentLink.result.paymentLink?.id,
+      square_payment_link_id: paymentLinkId,
       status: "created",
       fulfillment_method: fulfillment,
     });
 
-    // Insert order_items
+    // 4️⃣ Insert order_items
     const orderItemsInsert = [];
 
     for (const item of items) {
@@ -108,7 +139,7 @@ export async function POST(req: Request) {
 
       const { data: product } = await supabaseAdmin
         .from("products")
-        .select("*")
+        .select("price_cents")
         .eq("id", productId)
         .single();
 
@@ -123,7 +154,7 @@ export async function POST(req: Request) {
     await supabaseAdmin.from("order_items").insert(orderItemsInsert);
 
     return NextResponse.json({
-      checkoutUrl: paymentLink.result.paymentLink?.url,
+      checkoutUrl: paymentLinkUrl,
     });
   } catch (err) {
     console.error("Checkout error:", err);
