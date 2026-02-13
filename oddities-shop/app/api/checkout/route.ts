@@ -19,9 +19,7 @@ export async function POST(req: Request) {
     }
 
     const lineItems: any[] = [];
-    let totalAmount = 0;
 
-    // Validate products + build Square line items
     for (const item of items) {
       const { productId, quantity = 1 } = item;
 
@@ -45,8 +43,6 @@ export async function POST(req: Request) {
         );
       }
 
-      totalAmount += product.price_cents * quantity;
-
       lineItems.push({
         name: product.title,
         quantity: quantity.toString(),
@@ -56,6 +52,33 @@ export async function POST(req: Request) {
         },
       });
     }
+
+    // 🔥 Build fulfillment correctly
+    const fulfillments =
+      fulfillment === "shipping"
+        ? [
+            {
+              type: "SHIPMENT",
+              state: "PROPOSED",
+              shipment_details: {
+                recipient: {
+                  display_name: "Customer",
+                },
+              },
+            },
+          ]
+        : [
+            {
+              type: "PICKUP",
+              state: "PROPOSED",
+              pickup_details: {
+                recipient: {
+                  display_name: "Customer",
+                },
+                schedule_type: "ASAP",
+              },
+            },
+          ];
 
     // 1️⃣ Create Square Order
     const createOrderRes = await fetch(`${SQUARE_BASE}/v2/orders`, {
@@ -69,12 +92,7 @@ export async function POST(req: Request) {
         order: {
           location_id: process.env.SQUARE_LOCATION_ID,
           line_items: lineItems,
-          fulfillments: [
-            {
-              type: "SHIPMENT",
-              state: "PROPOSED",
-            },
-          ],
+          fulfillments,
         },
       }),
     });
