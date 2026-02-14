@@ -10,9 +10,10 @@ const SQUARE_BASE =
 export async function POST(req: Request) {
   try {
     const locationId = process.env.SQUARE_LOCATION_ID;
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
 
-    if (!locationId) {
-      console.error("Missing SQUARE_LOCATION_ID");
+    if (!locationId || !siteUrl) {
+      console.error("Missing env variables");
       return NextResponse.json(
         { error: "Server configuration error" },
         { status: 500 }
@@ -89,7 +90,6 @@ export async function POST(req: Request) {
             },
           ];
 
-    // ✅ CREATE PAYMENT LINK DIRECTLY (NO SEPARATE ORDER CALL)
     const createPaymentLinkRes = await fetch(
       `${SQUARE_BASE}/v2/online-checkout/payment-links`,
       {
@@ -104,6 +104,10 @@ export async function POST(req: Request) {
             location_id: locationId,
             line_items: lineItems,
             fulfillments,
+          },
+          checkout_options: {
+            redirect_url: `${siteUrl}/thank-you`,
+            merchant_support_email: "support@coldbratpokes.com",
           },
         }),
       }
@@ -123,7 +127,6 @@ export async function POST(req: Request) {
     const paymentLinkId = paymentLinkData.payment_link.id;
     const squareOrderId = paymentLinkData.payment_link.order_id;
 
-    // Save order locally
     const orderId = randomUUID();
 
     await supabaseAdmin.from("orders").insert({
