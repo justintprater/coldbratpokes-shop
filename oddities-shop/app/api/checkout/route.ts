@@ -13,9 +13,8 @@ export async function POST(req: Request) {
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
 
     if (!locationId || !siteUrl) {
-      console.error("Missing env variables");
       return NextResponse.json(
-        { error: "Server configuration error" },
+        { error: "Missing environment variables" },
         { status: 500 }
       );
     }
@@ -70,11 +69,6 @@ export async function POST(req: Request) {
             {
               type: "SHIPMENT",
               state: "PROPOSED",
-              shipment_details: {
-                recipient: {
-                  display_name: "Customer",
-                },
-              },
             },
           ]
         : [
@@ -82,9 +76,6 @@ export async function POST(req: Request) {
               type: "PICKUP",
               state: "PROPOSED",
               pickup_details: {
-                recipient: {
-                  display_name: "Customer",
-                },
                 schedule_type: "ASAP",
               },
             },
@@ -107,7 +98,6 @@ export async function POST(req: Request) {
           },
           checkout_options: {
             redirect_url: `${siteUrl}/thank-you`,
-            merchant_support_email: "support@coldbratpokes.com",
           },
         }),
       }
@@ -123,19 +113,36 @@ export async function POST(req: Request) {
       );
     }
 
-    const paymentLinkUrl = paymentLinkData.payment_link.url;
-    const paymentLinkId = paymentLinkData.payment_link.id;
-    const squareOrderId = paymentLinkData.payment_link.order_id;
+    const squareOrderId =
+      paymentLinkData.related_resources?.orders?.[0]?.id;
+
+    if (!squareOrderId) {
+      console.error("Square order ID missing:", paymentLinkData);
+      return NextResponse.json(
+        { error: "Square order ID missing" },
+        { status: 500 }
+      );
+    }
 
     const orderId = randomUUID();
 
-    await supabaseAdmin.from("orders").insert({
-      id: orderId,
-      square_order_id: squareOrderId,
-      square_payment_link_id: paymentLinkId,
-      status: "created",
-      fulfillment_method: fulfillment,
-    });
+    const { error: orderInsertError } = await supabaseAdmin
+      .from("orders")
+      .insert({
+        id: orderId,
+        square_order_id: squareOrderId,
+        square_payment_link_id: paymentLinkData.payment_link.id,
+        status: "created",
+        fulfillment_method: fulfillment,
+      });
+
+    if (orderInsertError) {
+      console.error("ORDER INSERT ERROR:", orderInsertError);
+      return NextResponse.json(
+        { error: "Order insert failed" },
+        { status: 500 }
+      );
+    }
 
     const orderItemsInsert = [];
 
@@ -156,10 +163,20 @@ export async function POST(req: Request) {
       });
     }
 
-    await supabaseAdmin.from("order_items").insert(orderItemsInsert);
+    const { error: itemsError } = await supabaseAdmin
+      .from("order_items")
+      .insert(orderItemsInsert);
+
+    if (itemsError) {
+      console.error("ORDER ITEMS INSERT ERROR:", itemsError);
+      return NextResponse.json(
+        { error: "Order items insert failed" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
-      checkoutUrl: paymentLinkUrl,
+      checkoutUrl: paymentLinkData.payment_link.url,
     });
   } catch (err) {
     console.error("Checkout error:", err);

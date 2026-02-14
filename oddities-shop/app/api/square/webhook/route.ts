@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export async function POST(req: Request) {
   try {
     const signature = req.headers.get("x-square-hmacsha256-signature");
-    const body = await req.text();
+    const rawBody = await req.text();
 
     const notificationUrl =
       "https://coldbratpokes-shop.vercel.app/api/square/webhook";
@@ -15,17 +15,15 @@ export async function POST(req: Request) {
       process.env.SQUARE_WEBHOOK_SIGNATURE_KEY!
     );
 
-    // 🔥 THIS IS THE FIX
-    hmac.update(notificationUrl + body);
+    hmac.update(notificationUrl + rawBody);
+    const expectedSignature = hmac.digest("base64");
 
-    const hash = hmac.digest("base64");
-
-    if (signature !== hash) {
+    if (signature !== expectedSignature) {
       console.error("Invalid signature");
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
 
-    const event = JSON.parse(body);
+    const event = JSON.parse(rawBody);
 
     if (event.type !== "payment.updated") {
       return NextResponse.json({ received: true });
@@ -46,6 +44,7 @@ export async function POST(req: Request) {
       .single();
 
     if (!order) {
+      console.error("Order not found:", squareOrderId);
       return NextResponse.json({ received: true });
     }
 
@@ -60,33 +59,6 @@ export async function POST(req: Request) {
         square_payment_id: payment.id,
       })
       .eq("id", order.id);
-
-    const { data: items } = await supabaseAdmin
-      .from("order_items")
-      .select("*")
-      .eq("order_id", order.id);
-
-    if (items && items.length > 0) {
-      for (const item of items) {
-        const { data: product } = await supabaseAdmin
-          .from("products")
-          .select("*")
-          .eq("id", item.product_id)
-          .single();
-
-        if (!product) continue;
-
-        const newQty = product.quantity_available - item.quantity;
-
-        await supabaseAdmin
-          .from("products")
-          .update({
-            quantity_available: newQty,
-            status: newQty <= 0 ? "sold" : product.status,
-          })
-          .eq("id", item.product_id);
-      }
-    }
 
     return NextResponse.json({ success: true });
   } catch (err) {
