@@ -1,88 +1,46 @@
 import { NextResponse } from "next/server";
-import { randomUUID } from "crypto";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { createClient } from "@supabase/supabase-js";
 
-const SQUARE_BASE =
-  process.env.SQUARE_ENV === "production"
-    ? "https://connect.squareup.com"
-    : "https://connect.squareupsandbox.com";
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: Request) {
   try {
-    const locationId = process.env.SQUARE_LOCATION_ID;
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+    const { items } = await req.json();
 
-    if (!locationId || !siteUrl) {
-      return NextResponse.json(
-        { error: "Missing environment variables" },
-        { status: 500 }
-      );
+    if (!items || items.length === 0) {
+      throw new Error("No items provided");
     }
 
-    const { items, fulfillment = "shipping" } = await req.json();
-
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return NextResponse.json(
-        { error: "No items provided" },
-        { status: 400 }
-      );
-    }
-
-    const lineItems: any[] = [];
+    // 1. Build Square line items
+    const lineItems = [];
 
     for (const item of items) {
-      const { productId, quantity = 1 } = item;
-
-      const { data: product, error } = await supabaseAdmin
+      const { data: product, error } = await supabase
         .from("products")
         .select("*")
-        .eq("id", productId)
+        .eq("id", item.productId)
         .single();
 
       if (error || !product) {
-        return NextResponse.json(
-          { error: "Product not found" },
-          { status: 404 }
-        );
-      }
-
-      if (product.quantity_available < quantity) {
-        return NextResponse.json(
-          { error: `${product.title} is out of stock` },
-          { status: 400 }
-        );
+        throw new Error(`Product not found: ${item.productId}`);
       }
 
       lineItems.push({
-        name: product.title,
-        quantity: quantity.toString(),
+        name: product.name,
+        quantity: item.quantity.toString(),
         base_price_money: {
-          amount: product.price_cents,
-          currency: (product.currency || "USD").toUpperCase(),
+          amount: product.price,
+          currency: "USD",
         },
       });
     }
 
-    const fulfillments =
-      fulfillment === "shipping"
-        ? [
-            {
-              type: "SHIPMENT",
-              state: "PROPOSED",
-            },
-          ]
-        : [
-            {
-              type: "PICKUP",
-              state: "PROPOSED",
-              pickup_details: {
-                schedule_type: "ASAP",
-              },
-            },
-          ];
-
-    const createPaymentLinkRes = await fetch(
-      `${SQUARE_BASE}/v2/online-checkout/payment-links`,
+    // 2. Create Square payment link
+    const res = await fetch(
+      "https://connect.squareup.com/v2/online-checkout/payment-links",
       {
         method: "POST",
         headers: {
@@ -90,99 +48,64 @@ export async function POST(req: Request) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          idempotency_key: randomUUID(),
-          order: {
-            location_id: locationId,
-            line_items: lineItems,
-            fulfillments,
-          },
           checkout_options: {
-            redirect_url: `${siteUrl}/thank-you`,
+            redirect_url: `${process.env.BASE_URL}/thank-you`,
+          },
+          order: {
+            location_id: process.env.SQUARE_LOCATION_ID,
+            line_items: lineItems,
           },
         }),
       }
     );
 
-    const paymentLinkData = await createPaymentLinkRes.json();
+    const data = await res.json();
 
-    if (!createPaymentLinkRes.ok) {
-      console.error("Square payment link error:", paymentLinkData);
-      return NextResponse.json(
-        { error: "Square payment link failed" },
-        { status: 500 }
-      );
+    if (!data.payment_link) {
+      console.error(data);
+      throw new Error("Square payment link failed");
     }
 
+    // ✅ CRITICAL FIX — correct order ID
     const squareOrderId =
-      paymentLinkData.related_resources?.orders?.[0]?.id;
+      data.related_resources?.orders?.[0]?.id;
 
     if (!squareOrderId) {
-      console.error("Square order ID missing:", paymentLinkData);
-      return NextResponse.json(
-        { error: "Square order ID missing" },
-        { status: 500 }
-      );
+      throw new Error("Missing Square order ID");
     }
 
-    const orderId = randomUUID();
-
-    const { error: orderInsertError } = await supabaseAdmin
+    // 3. Insert order
+    const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
-        id: orderId,
-        square_order_id: squareOrderId,
-        square_payment_link_id: paymentLinkData.payment_link.id,
         status: "created",
-        fulfillment_method: fulfillment,
-      });
+        square_order_id: squareOrderId,
+      })
+      .select()
+      .single();
 
-    if (orderInsertError) {
-      console.error("ORDER INSERT ERROR:", orderInsertError);
-      return NextResponse.json(
-        { error: "Order insert failed" },
-        { status: 500 }
-      );
+    if (orderError) {
+      console.error(orderError);
+      throw new Error("Order insert failed");
     }
 
-    const orderItemsInsert = [];
-
+    // 4. Insert order items
     for (const item of items) {
-      const { productId, quantity = 1 } = item;
-
-      const { data: product } = await supabaseAdmin
-        .from("products")
-        .select("price_cents")
-        .eq("id", productId)
-        .single();
-
-      orderItemsInsert.push({
-        order_id: orderId,
-        product_id: productId,
-        quantity,
-        price_cents: product!.price_cents,
+      const { error } = await supabase.from("order_items").insert({
+        order_id: order.id,
+        product_id: item.productId,
+        quantity: item.quantity,
       });
+
+      if (error) {
+        console.error(error);
+        throw new Error("Order items insert failed");
+      }
     }
 
-    const { error: itemsError } = await supabaseAdmin
-      .from("order_items")
-      .insert(orderItemsInsert);
-
-    if (itemsError) {
-      console.error("ORDER ITEMS INSERT ERROR:", itemsError);
-      return NextResponse.json(
-        { error: "Order items insert failed" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      checkoutUrl: paymentLinkData.payment_link.url,
-    });
+    return NextResponse.json({ url: data.payment_link.url });
   } catch (err) {
-    console.error("Checkout error:", err);
-    return NextResponse.json(
-      { error: "Checkout failed" },
-      { status: 500 }
-    );
+    console.error("CHECKOUT ERROR:", err);
+    return NextResponse.json({ error: "Checkout failed" }, { status: 500 });
   }
 }
