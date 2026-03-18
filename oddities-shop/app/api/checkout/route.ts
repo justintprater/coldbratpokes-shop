@@ -10,6 +10,8 @@ export async function POST(req: Request) {
   try {
     const { items } = await req.json();
 
+    console.log("CHECKOUT ITEMS:", items);
+
     if (!items || items.length === 0) {
       throw new Error("No items provided");
     }
@@ -25,6 +27,7 @@ export async function POST(req: Request) {
         .single();
 
       if (error || !product) {
+        console.error("PRODUCT FETCH ERROR:", error);
         throw new Error(`Product not found: ${item.productId}`);
       }
 
@@ -37,6 +40,8 @@ export async function POST(req: Request) {
         },
       });
     }
+
+    console.log("SQUARE LINE ITEMS:", lineItems);
 
     // 2. Create Square payment link
     const res = await fetch(
@@ -61,16 +66,19 @@ export async function POST(req: Request) {
 
     const data = await res.json();
 
+    console.log("SQUARE RESPONSE:", data);
+
     if (!data.payment_link) {
-      console.error(data);
+      console.error("SQUARE ERROR RESPONSE:", data);
       throw new Error("Square payment link failed");
     }
 
-    // ✅ CRITICAL FIX — correct order ID
+    // ✅ correct Square order ID
     const squareOrderId =
       data.related_resources?.orders?.[0]?.id;
 
     if (!squareOrderId) {
+      console.error("Missing Square order ID:", data);
       throw new Error("Missing Square order ID");
     }
 
@@ -85,9 +93,11 @@ export async function POST(req: Request) {
       .single();
 
     if (orderError) {
-      console.error(orderError);
+      console.error("ORDER INSERT ERROR:", orderError);
       throw new Error("Order insert failed");
     }
+
+    console.log("ORDER CREATED:", order);
 
     // 4. Insert order items
     for (const item of items) {
@@ -98,10 +108,12 @@ export async function POST(req: Request) {
       });
 
       if (error) {
-        console.error(error);
+        console.error("ORDER ITEM INSERT ERROR:", error);
         throw new Error("Order items insert failed");
       }
     }
+
+    console.log("ORDER ITEMS INSERTED");
 
     return NextResponse.json({ url: data.payment_link.url });
   } catch (err) {
