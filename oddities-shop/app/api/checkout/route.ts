@@ -20,6 +20,8 @@ export async function POST(req: Request) {
     const lineItems = [];
 
     for (const item of items) {
+      console.log("PROCESSING ITEM:", item);
+
       const { data: product, error } = await supabase
         .from("products")
         .select("*")
@@ -41,9 +43,9 @@ export async function POST(req: Request) {
       });
     }
 
-    console.log("SQUARE LINE ITEMS:", lineItems);
+    console.log("FINAL LINE ITEMS:", lineItems);
 
-    // 2. Create Square payment link
+    // 2. Call Square
     const res = await fetch(
       "https://connect.squareup.com/v2/online-checkout/payment-links",
       {
@@ -64,23 +66,33 @@ export async function POST(req: Request) {
       }
     );
 
-    const data = await res.json();
+    // 🔥 FORCE RAW RESPONSE LOGGING
+    const rawText = await res.text();
+    console.log("RAW SQUARE RESPONSE:", rawText);
 
-    console.log("SQUARE RESPONSE:", data);
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (e) {
+      console.error("FAILED TO PARSE SQUARE RESPONSE");
+      throw new Error("Square returned invalid JSON");
+    }
 
     if (!data.payment_link) {
-      console.error("SQUARE ERROR RESPONSE:", data);
+      console.error("PARSED SQUARE ERROR:", data);
       throw new Error("Square payment link failed");
     }
 
-    // ✅ correct Square order ID
+    // ✅ Correct order ID extraction
     const squareOrderId =
       data.related_resources?.orders?.[0]?.id;
 
     if (!squareOrderId) {
-      console.error("Missing Square order ID:", data);
+      console.error("MISSING ORDER ID:", data);
       throw new Error("Missing Square order ID");
     }
+
+    console.log("SQUARE ORDER ID:", squareOrderId);
 
     // 3. Insert order
     const { data: order, error: orderError } = await supabase
