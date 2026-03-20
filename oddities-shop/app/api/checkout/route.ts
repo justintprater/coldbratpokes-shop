@@ -69,7 +69,7 @@ export async function POST(req: Request) {
 
     // 🔹 Create Square payment link
     const res = await fetch(
-      "https://connect.squareup.com/v2/online-checkout/payment-links",
+      "https://connect.squareupsandbox.com/v2/online-checkout/payment-links",
       {
         method: "POST",
         headers: {
