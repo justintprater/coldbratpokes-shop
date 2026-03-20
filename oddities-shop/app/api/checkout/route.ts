@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       }
 
       if (product.price_cents == null) {
-        throw new Error(`Missing price for product: ${product.name}`);
+        throw new Error(`Missing price for product: ${product.title}`);
       }
 
       const quantity = item.quantity && item.quantity > 0 ? item.quantity : 1;
@@ -53,11 +53,11 @@ export async function POST(req: Request) {
       const amount = product.price_cents;
 
       if (!amount || isNaN(amount)) {
-        throw new Error(`Invalid price for product: ${product.name}`);
+        throw new Error(`Invalid price for product: ${product.title}`);
       }
 
       return {
-        name: product.name,
+        name: product.title,
         quantity: String(quantity),
         base_price_money: {
           amount,
