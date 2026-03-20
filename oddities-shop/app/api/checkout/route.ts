@@ -44,13 +44,13 @@ export async function POST(req: Request) {
         throw new Error(`Product not found: ${item.productId}`);
       }
 
-      if (product.price == null) {
+      if (product.price_cents == null) {
         throw new Error(`Missing price for product: ${product.name}`);
       }
 
       const quantity = item.quantity && item.quantity > 0 ? item.quantity : 1;
 
-      const amount = Math.round(Number(product.price) * 100);
+      const amount = product.price_cents;
 
       if (!amount || isNaN(amount)) {
         throw new Error(`Invalid price for product: ${product.name}`);
