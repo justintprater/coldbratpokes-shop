@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 export async function POST(req: Request) {
-  console.log("CHECKOUT VERSION: FINAL FIX");
+  console.log("CHECKOUT VERSION: FINAL FINAL");
 
   try {
     const body = await req.json();
@@ -19,7 +19,7 @@ export async function POST(req: Request) {
       throw new Error("No items provided");
     }
 
-    // 🔹 Fetch all products
+    // 🔹 Fetch products
     const productIds = items.map((i: any) => i.productId);
 
     const { data: products, error: productError } = await supabase
@@ -32,7 +32,9 @@ export async function POST(req: Request) {
       throw new Error("Failed to fetch products");
     }
 
-    // 🔹 Build line items SAFELY
+    console.log("FETCHED PRODUCTS:", products);
+
+    // 🔹 Build line items safely
     const lineItems = items.map((item: any) => {
       const product = products.find((p) => p.id === item.productId);
 
@@ -40,13 +42,23 @@ export async function POST(req: Request) {
         throw new Error(`Product not found: ${item.productId}`);
       }
 
+      if (product.price == null) {
+        throw new Error(`Missing price for product: ${product.name}`);
+      }
+
       const quantity = item.quantity && item.quantity > 0 ? item.quantity : 1;
+
+      const amount = Math.round(Number(product.price) * 100);
+
+      if (!amount || isNaN(amount)) {
+        throw new Error(`Invalid price for product: ${product.name}`);
+      }
 
       return {
         name: product.name,
         quantity: String(quantity),
         base_price_money: {
-          amount: Math.round(product.price * 100), // ✅ ensures cents
+          amount,
           currency: "USD",
         },
       };
@@ -56,9 +68,9 @@ export async function POST(req: Request) {
       throw new Error("No valid line items");
     }
 
-    console.log("LINE ITEMS:", lineItems);
+    console.log("FINAL LINE ITEMS:", JSON.stringify(lineItems, null, 2));
 
-    // 🔹 ENV CHECK (prevents silent Square failure)
+    // 🔹 ENV check
     if (!process.env.SQUARE_ACCESS_TOKEN) {
       throw new Error("Missing SQUARE_ACCESS_TOKEN");
     }
@@ -67,9 +79,17 @@ export async function POST(req: Request) {
       throw new Error("Missing SQUARE_LOCATION_ID");
     }
 
-    // 🔹 Create Square payment link
+    // 🔹 Use correct Square environment
+    const baseUrl =
+      process.env.SQUARE_ENV === "sandbox"
+        ? "https://connect.squareupsandbox.com"
+        : "https://connect.squareup.com";
+
+    console.log("SQUARE BASE URL:", baseUrl);
+
+    // 🔹 Create payment link
     const res = await fetch(
-      "https://connect.squareupsandbox.com/v2/online-checkout/payment-links",
+      `${baseUrl}/v2/online-checkout/payment-links`,
       {
         method: "POST",
         headers: {
@@ -92,7 +112,7 @@ export async function POST(req: Request) {
     let data;
     try {
       data = JSON.parse(rawText);
-    } catch (e) {
+    } catch {
       throw new Error("Invalid JSON from Square");
     }
 
@@ -142,6 +162,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ url: paymentLink.url });
   } catch (err: any) {
     console.error("CHECKOUT ERROR:", err.message);
+
     return NextResponse.json(
       { error: err.message },
       { status: 500 }
