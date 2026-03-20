@@ -7,45 +7,67 @@ const supabase = createClient(
 );
 
 export async function POST(req: Request) {
+  console.log("CHECKOUT VERSION: FINAL FIX");
+
   try {
-    const { items } = await req.json();
+    const body = await req.json();
+    console.log("REQUEST BODY:", body);
 
-    console.log("CHECKOUT ITEMS:", items);
+    const items = body.items;
 
-    if (!items || items.length === 0) {
+    if (!items || !Array.isArray(items) || items.length === 0) {
       throw new Error("No items provided");
     }
 
-    // 1. Build Square line items
-    const lineItems = [];
+    // 🔹 Fetch all products
+    const productIds = items.map((i: any) => i.productId);
 
-    for (const item of items) {
-      console.log("PROCESSING ITEM:", item);
+    const { data: products, error: productError } = await supabase
+      .from("products")
+      .select("*")
+      .in("id", productIds);
 
-      const { data: product, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("id", item.productId)
-        .single();
+    if (productError || !products) {
+      console.error(productError);
+      throw new Error("Failed to fetch products");
+    }
 
-      if (error || !product) {
-        console.error("PRODUCT FETCH ERROR:", error);
+    // 🔹 Build line items SAFELY
+    const lineItems = items.map((item: any) => {
+      const product = products.find((p) => p.id === item.productId);
+
+      if (!product) {
         throw new Error(`Product not found: ${item.productId}`);
       }
 
-      lineItems.push({
+      const quantity = item.quantity && item.quantity > 0 ? item.quantity : 1;
+
+      return {
         name: product.name,
-        quantity: item.quantity.toString(),
+        quantity: String(quantity),
         base_price_money: {
-          amount: product.price,
+          amount: Math.round(product.price * 100), // ✅ ensures cents
           currency: "USD",
         },
-      });
+      };
+    });
+
+    if (!lineItems.length) {
+      throw new Error("No valid line items");
     }
 
-    console.log("FINAL LINE ITEMS:", lineItems);
+    console.log("LINE ITEMS:", lineItems);
 
-    // 2. Call Square
+    // 🔹 ENV CHECK (prevents silent Square failure)
+    if (!process.env.SQUARE_ACCESS_TOKEN) {
+      throw new Error("Missing SQUARE_ACCESS_TOKEN");
+    }
+
+    if (!process.env.SQUARE_LOCATION_ID) {
+      throw new Error("Missing SQUARE_LOCATION_ID");
+    }
+
+    // 🔹 Create Square payment link
     const res = await fetch(
       "https://connect.squareup.com/v2/online-checkout/payment-links",
       {
@@ -55,9 +77,7 @@ export async function POST(req: Request) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          checkout_options: {
-            redirect_url: `${process.env.BASE_URL}/thank-you`,
-          },
+          idempotency_key: crypto.randomUUID(),
           order: {
             location_id: process.env.SQUARE_LOCATION_ID,
             line_items: lineItems,
@@ -66,7 +86,6 @@ export async function POST(req: Request) {
       }
     );
 
-    // 🔥 FORCE RAW RESPONSE LOGGING
     const rawText = await res.text();
     console.log("RAW SQUARE RESPONSE:", rawText);
 
@@ -74,62 +93,58 @@ export async function POST(req: Request) {
     try {
       data = JSON.parse(rawText);
     } catch (e) {
-      console.error("FAILED TO PARSE SQUARE RESPONSE");
-      throw new Error("Square returned invalid JSON");
+      throw new Error("Invalid JSON from Square");
+    }
+
+    if (!res.ok) {
+      throw new Error(`Square API error: ${rawText}`);
     }
 
     if (!data.payment_link) {
-      console.error("PARSED SQUARE ERROR:", data);
-      throw new Error("Square payment link failed");
+      throw new Error(`No payment_link in response: ${rawText}`);
     }
 
-    // ✅ Correct order ID extraction
-    const squareOrderId =
-      data.related_resources?.orders?.[0]?.id;
+    const paymentLink = data.payment_link;
 
-    if (!squareOrderId) {
-      console.error("MISSING ORDER ID:", data);
-      throw new Error("Missing Square order ID");
-    }
+    console.log("PAYMENT LINK:", paymentLink);
 
-    console.log("SQUARE ORDER ID:", squareOrderId);
-
-    // 3. Insert order
+    // 🔹 Insert order
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
-        status: "created",
-        square_order_id: squareOrderId,
+        square_order_id: paymentLink.order_id,
+        status: "pending",
       })
       .select()
       .single();
 
-    if (orderError) {
-      console.error("ORDER INSERT ERROR:", orderError);
-      throw new Error("Order insert failed");
+    if (orderError || !order) {
+      console.error(orderError);
+      throw new Error("Failed to create order");
     }
 
-    console.log("ORDER CREATED:", order);
+    // 🔹 Insert order items
+    const orderItems = items.map((item: any) => ({
+      order_id: order.id,
+      product_id: item.productId,
+      quantity: item.quantity || 1,
+    }));
 
-    // 4. Insert order items
-    for (const item of items) {
-      const { error } = await supabase.from("order_items").insert({
-        order_id: order.id,
-        product_id: item.productId,
-        quantity: item.quantity,
-      });
+    const { error: itemsError } = await supabase
+      .from("order_items")
+      .insert(orderItems);
 
-      if (error) {
-        console.error("ORDER ITEM INSERT ERROR:", error);
-        throw new Error("Order items insert failed");
-      }
+    if (itemsError) {
+      console.error(itemsError);
+      throw new Error("Failed to insert order items");
     }
 
-    console.log("ORDER ITEMS INSERTED");
-
-    return NextResponse.json({ url: data.payment_link.url });
-  } catch (err) {
-    console.error("CHECKOUT ERROR:", err);
-    return NextResponse.json({ error: "Checkout failed" }, { status: 500 });
+    return NextResponse.json({ url: paymentLink.url });
+  } catch (err: any) {
+    console.error("CHECKOUT ERROR:", err.message);
+    return NextResponse.json(
+      { error: err.message },
+      { status: 500 }
+    );
   }
 }
