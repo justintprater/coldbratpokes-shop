@@ -36,7 +36,9 @@ export async function POST(req: Request) {
 
     // 🔹 Build line items safely
     const lineItems = items.map((item: any) => {
-      const product = products.find((p) => p.id === item.productId);
+      const product = products.find(
+        (p) => String(p.id) == String(item.productId)
+      )
 
       if (!product) {
         throw new Error(`Product not found: ${item.productId}`);
