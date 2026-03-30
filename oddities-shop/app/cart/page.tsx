@@ -106,6 +106,8 @@ export default function CartPage() {
 
       const json = await res.json();
 
+      console.log("CHECKOUT RESPONSE:", json);
+
       if (!res.ok) {
         alert(json?.error ?? "Checkout failed");
         setLoading(false);
@@ -115,7 +117,14 @@ export default function CartPage() {
       localStorage.removeItem("cart");
       window.dispatchEvent(new Event("storage"));
 
-      window.location.href = json.checkoutUrl;
+      // ✅ THE FIX (THIS WAS WRONG BEFORE)
+      if (!json.url) {
+        console.error("Missing URL:", json);
+        alert("Checkout failed");
+        return;
+      }
+
+      window.location.href = json.url;
     } catch (err) {
       console.error(err);
       alert("Checkout error");
@@ -144,47 +153,11 @@ export default function CartPage() {
             const imgUrl = product.product_images?.[0]?.url ?? null;
 
             return (
-              <div
-                key={item.productId}
-                style={{
-                  display: "flex",
-                  gap: 16,
-                  alignItems: "center",
-                  marginBottom: 20,
-                }}
-              >
-                {imgUrl && (
-                  <img
-                    src={imgUrl}
-                    alt={product.title}
-                    style={{
-                      width: 80,
-                      height: 80,
-                      objectFit: "cover",
-                      borderRadius: 8,
-                    }}
-                  />
-                )}
-
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600 }}>{product.title}</div>
-                  <div style={{ fontSize: 14, opacity: 0.7 }}>
-                    ${(product.price_cents / 100).toFixed(2)}
-                  </div>
-
-                  <div style={{ marginTop: 6 }}>
-                    <button onClick={() => changeQty(item.productId, -1)}>
-                      -
-                    </button>
-                    <span style={{ margin: "0 10px" }}>
-                      {item.quantity}
-                    </span>
-                    <button onClick={() => changeQty(item.productId, 1)}>
-                      +
-                    </button>
-                  </div>
-                </div>
-
+              <div key={item.productId}>
+                <p>{product.title}</p>
+                <p>Qty: {item.quantity}</p>
+                <button onClick={() => changeQty(item.productId, 1)}>+</button>
+                <button onClick={() => changeQty(item.productId, -1)}>-</button>
                 <button onClick={() => removeItem(item.productId)}>
                   Remove
                 </button>
@@ -192,40 +165,10 @@ export default function CartPage() {
             );
           })}
 
-          <hr style={{ margin: "24px 0" }} />
+          <h2>Total: ${(total / 100).toFixed(2)}</h2>
 
-          <div style={{ marginBottom: 16 }}>
-            <label>
-              <input
-                type="radio"
-                checked={fulfillment === "shipping"}
-                onChange={() => setFulfillment("shipping")}
-              />
-              Ship to me ($10 flat)
-            </label>
-
-            <br />
-
-            <label>
-              <input
-                type="radio"
-                checked={fulfillment === "pickup"}
-                onChange={() => setFulfillment("pickup")}
-              />
-              In-person pickup (free)
-            </label>
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <strong>Total: ${(total / 100).toFixed(2)}</strong>
-          </div>
-
-          <button
-            onClick={handleCheckout}
-            disabled={loading}
-            className="buyBtn"
-          >
-            {loading ? "Redirecting…" : "Checkout"}
+          <button onClick={handleCheckout} disabled={loading}>
+            {loading ? "Processing..." : "Checkout"}
           </button>
         </>
       )}
