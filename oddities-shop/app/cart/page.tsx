@@ -63,8 +63,6 @@ export default function CartPage() {
 
       const json = await res.json();
 
-      console.log("CHECKOUT RESPONSE:", json);
-
       if (!res.ok || !json.url) {
         alert("Checkout failed");
         return;
@@ -73,9 +71,7 @@ export default function CartPage() {
       localStorage.removeItem("cart");
       window.dispatchEvent(new Event("storage"));
 
-      // ✅ ONLY REAL FIX
       window.location.href = json.url;
-
     } catch (err) {
       console.error(err);
       alert("Checkout error");
@@ -91,8 +87,17 @@ export default function CartPage() {
   }, 0);
 
   return (
-    <main className="container">
-      <h1>Your Cart</h1>
+    <main
+      style={{
+        maxWidth: "600px",
+        margin: "0 auto",
+        padding: "40px 20px",
+        color: "white",
+      }}
+    >
+      <h1 style={{ fontSize: "28px", marginBottom: "20px" }}>
+        Your Cart
+      </h1>
 
       {cart.length === 0 ? (
         <p>Your cart is empty.</p>
@@ -105,24 +110,59 @@ export default function CartPage() {
             const imgUrl = product.product_images?.[0]?.url;
 
             return (
-              <div key={item.productId}>
+              <div
+                key={item.productId}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "16px",
+                  marginBottom: "20px",
+                }}
+              >
                 {imgUrl && (
                   <img
                     src={imgUrl}
                     alt={product.title}
-                    style={{ width: "100px" }}
+                    style={{
+                      width: "100px",
+                      height: "100px",
+                      objectFit: "cover",
+                      borderRadius: "8px",
+                    }}
                   />
                 )}
 
-                <p>{product.title}</p>
-                <p>Qty: {item.quantity}</p>
+                <div>
+                  <p style={{ fontSize: "18px", margin: 0 }}>
+                    {product.title}
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    Qty: {item.quantity}
+                  </p>
+                </div>
               </div>
             );
           })}
 
-          <h2>Total: ${(total / 100).toFixed(2)}</h2>
+          <h2 style={{ marginTop: "20px" }}>
+            Total: ${(total / 100).toFixed(2)}
+          </h2>
 
-          <button onClick={handleCheckout} disabled={loading}>
+          <button
+            onClick={handleCheckout}
+            disabled={loading}
+            style={{
+              marginTop: "20px",
+              width: "100%",
+              padding: "14px",
+              fontSize: "16px",
+              background: "white",
+              color: "black",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+            }}
+          >
             {loading ? "Processing..." : "Checkout"}
           </button>
         </>
