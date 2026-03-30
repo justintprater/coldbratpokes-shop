@@ -3,8 +3,13 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 
+type CartItem = {
+  productId: string;
+  quantity: number;
+};
+
 export default function CartPage() {
-  const [cart, setCart] = useState<any[]>([]);
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<any>({});
   const [loading, setLoading] = useState(false);
 
@@ -21,7 +26,13 @@ export default function CartPage() {
 
       const { data } = await supabase
         .from("products")
-        .select("*")
+        .select(`
+          id,
+          title,
+          price_cents,
+          quantity_available,
+          product_images ( url )
+        `)
         .in("id", ids);
 
       if (data) {
@@ -54,12 +65,15 @@ export default function CartPage() {
 
       console.log("CHECKOUT RESPONSE:", json);
 
-      if (!json.url) {
+      if (!res.ok || !json.url) {
         alert("Checkout failed");
         return;
       }
 
-      // ✅ ONLY CHANGE THAT MATTERS
+      localStorage.removeItem("cart");
+      window.dispatchEvent(new Event("storage"));
+
+      // ✅ ONLY REAL FIX
       window.location.href = json.url;
 
     } catch (err) {
@@ -69,6 +83,12 @@ export default function CartPage() {
       setLoading(false);
     }
   }
+
+  const total = cart.reduce((sum, item) => {
+    const product = products[item.productId];
+    if (!product) return sum;
+    return sum + product.price_cents * item.quantity;
+  }, 0);
 
   return (
     <main className="container">
@@ -82,13 +102,25 @@ export default function CartPage() {
             const product = products[item.productId];
             if (!product) return null;
 
+            const imgUrl = product.product_images?.[0]?.url;
+
             return (
               <div key={item.productId}>
+                {imgUrl && (
+                  <img
+                    src={imgUrl}
+                    alt={product.title}
+                    style={{ width: "100px" }}
+                  />
+                )}
+
                 <p>{product.title}</p>
                 <p>Qty: {item.quantity}</p>
               </div>
             );
           })}
+
+          <h2>Total: ${(total / 100).toFixed(2)}</h2>
 
           <button onClick={handleCheckout} disabled={loading}>
             {loading ? "Processing..." : "Checkout"}
