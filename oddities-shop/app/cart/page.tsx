@@ -87,82 +87,60 @@ export default function CartPage() {
   }, 0);
 
   return (
-    <main
-      style={{
-        maxWidth: "600px",
-        margin: "0 auto",
-        padding: "40px 20px",
-        color: "white",
-      }}
-    >
-      <h1 style={{ fontSize: "28px", marginBottom: "20px" }}>
-        Your Cart
-      </h1>
+    <main className="max-w-2xl mx-auto px-6 py-16 text-white">
+      <h1 className="text-2xl mb-8">Your Cart</h1>
 
       {cart.length === 0 ? (
         <p>Your cart is empty.</p>
       ) : (
         <>
-          {cart.map((item) => {
-            const product = products[item.productId];
-            if (!product) return null;
+          <div className="space-y-6">
+            {cart.map((item) => {
+              const product = products[item.productId];
+              if (!product) return null;
 
-            const imgUrl = product.product_images?.[0]?.url;
+              const imgUrl = product.product_images?.[0]?.url;
 
-            return (
-              <div
-                key={item.productId}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "16px",
-                  marginBottom: "20px",
-                }}
-              >
-                {imgUrl && (
-                  <img
-                    src={imgUrl}
-                    alt={product.title}
-                    style={{
-                      width: "100px",
-                      height: "100px",
-                      objectFit: "cover",
-                      borderRadius: "8px",
-                    }}
-                  />
-                )}
+              return (
+                <div
+                  key={item.productId}
+                  className="flex items-center gap-5"
+                >
+                  {imgUrl && (
+                    <img
+                      src={imgUrl}
+                      alt={product.title}
+                      className="w-32 h-32 object-cover rounded-xl"
+                    />
+                  )}
 
-                <div>
-                  <p
-                    style={{
-                      fontSize: "18px",
-                      fontWeight: "600",
-                      margin: 0,
-                    }}
-                  >
-                    {product.title}
-                  </p>
-                  <p style={{ margin: 0 }}>
-                    Qty: {item.quantity}
-                  </p>
+                  <div>
+                    <p className="text-lg font-semibold">
+                      {product.title}
+                    </p>
+                    <p className="opacity-70">
+                      Qty: {item.quantity}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
 
-          <h2 style={{ marginTop: "20px" }}>
-            Total: ${(total / 100).toFixed(2)}
-          </h2>
+          <div className="mt-10">
+            <h2 className="text-lg mb-4">
+              Total: ${(total / 100).toFixed(2)}
+            </h2>
 
-          {/* 🔥 MATCHES YOUR PURPLE BUTTON STYLE */}
-          <button
-            onClick={handleCheckout}
-            disabled={loading}
-            className="add-to-cart-btn"
-            style={{ marginTop: "20px", width: "100%" }}
-          >
-            {loading ? "Processing..." : "Checkout"}
-          </button>
+            {/* ✅ MATCHES YOUR PRODUCT PAGE BUTTON */}
+            <button
+              onClick={handleCheckout}
+              disabled={loading}
+              className="w-full rounded-xl border border-purple-500 bg-purple-500/10 py-3 font-medium text-white transition hover:bg-purple-500/20 disabled:opacity-50"
+            >
+              {loading ? "Processing..." : "Checkout"}
+            </button>
+          </div>
         </>
       )}
     </main>
