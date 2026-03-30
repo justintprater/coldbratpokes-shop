@@ -133,7 +133,13 @@ export default function CartPage() {
                 )}
 
                 <div>
-                  <p style={{ fontSize: "18px", margin: 0 }}>
+                  <p
+                    style={{
+                      fontSize: "18px",
+                      fontWeight: "600",
+                      margin: 0,
+                    }}
+                  >
                     {product.title}
                   </p>
                   <p style={{ margin: 0 }}>
@@ -148,20 +154,12 @@ export default function CartPage() {
             Total: ${(total / 100).toFixed(2)}
           </h2>
 
+          {/* 🔥 MATCHES YOUR PURPLE BUTTON STYLE */}
           <button
             onClick={handleCheckout}
             disabled={loading}
-            style={{
-              marginTop: "20px",
-              width: "100%",
-              padding: "14px",
-              fontSize: "16px",
-              background: "white",
-              color: "black",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-            }}
+            className="add-to-cart-btn"
+            style={{ marginTop: "20px", width: "100%" }}
           >
             {loading ? "Processing..." : "Checkout"}
           </button>
