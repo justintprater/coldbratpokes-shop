@@ -86,6 +86,10 @@ export async function POST(req: Request) {
 
     const paymentLinkData = await createPaymentLinkRes.json();
 
+    // ✅ DEBUG LOGS (RIGHT PLACE)
+    console.log("SQUARE STATUS:", createPaymentLinkRes.status);
+    console.log("FULL SQUARE RESPONSE:", paymentLinkData);
+
     if (!createPaymentLinkRes.ok) {
       console.error("Square error:", paymentLinkData);
       return NextResponse.json(
@@ -94,7 +98,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ CRITICAL: correct order ID extraction
     const squareOrderId =
       paymentLinkData.related_resources?.orders?.[0]?.id;
 
@@ -108,7 +111,6 @@ export async function POST(req: Request) {
 
     const orderId = randomUUID();
 
-    // ✅ FIXED ORDER INSERT (MATCHES YOUR SCHEMA)
     const { error: orderInsertError } = await supabaseAdmin
       .from("orders")
       .insert({
@@ -117,8 +119,6 @@ export async function POST(req: Request) {
         square_payment_link_id: paymentLinkData.payment_link.id,
         status: "created",
         fulfillment_method: fulfillment,
-
-        // ✅ REQUIRED FIELDS (TEMP FOR CART)
         product_id: items[0].productId,
         quantity: items[0].quantity || 1,
       });
@@ -131,7 +131,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ ORDER ITEMS (CORRECT)
     const orderItemsInsert = [];
 
     for (const item of items) {
@@ -162,6 +161,12 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+
+    // ✅ DEBUG WHAT YOU RETURN
+    console.log(
+      "RETURNING URL:",
+      paymentLinkData?.payment_link?.url
+    );
 
     return NextResponse.json({
       url: paymentLinkData.payment_link.url,
