@@ -25,7 +25,6 @@ export async function POST(req: NextRequest) {
       const quantity =
         item.quantity && item.quantity > 0 ? item.quantity : 1;
 
-      // ✅ ALWAYS FETCH PRICE FROM DB (NOT FRONTEND)
       const { data: product, error } = await supabase
         .from("products")
         .select("id, quantity_available, price_cents")
@@ -51,13 +50,13 @@ export async function POST(req: NextRequest) {
       normalizedItems.push({
         productId: product.id,
         quantity,
-        price_cents: product.price_cents, // ✅ FIXED HERE
+        price_cents: product.price_cents,
       });
     }
 
     const firstItem = normalizedItems[0];
 
-    // ✅ CREATE ORDER (keep required fields)
+    // ✅ REQUIRED fields for your DB (keep these)
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
@@ -73,7 +72,6 @@ export async function POST(req: NextRequest) {
       return new Response("Order failed", { status: 500 });
     }
 
-    // ✅ INSERT ORDER ITEMS (now guaranteed valid)
     const orderItems = normalizedItems.map((item) => ({
       order_id: order.id,
       product_id: item.productId,
@@ -90,9 +88,14 @@ export async function POST(req: NextRequest) {
       return new Response("Items failed", { status: 500 });
     }
 
-    // ✅ CREATE SQUARE LINK
+    // ✅ FIXED SQUARE ENV HANDLING (THIS WAS YOUR ISSUE)
+    const squareBaseUrl =
+      process.env.SQUARE_ENV === "sandbox"
+        ? "https://connect.squareupsandbox.com"
+        : "https://connect.squareup.com";
+
     const response = await fetch(
-      "https://connect.squareup.com/v2/online-checkout/payment-links",
+      `${squareBaseUrl}/v2/online-checkout/payment-links`,
       {
         method: "POST",
         headers: {
@@ -117,6 +120,8 @@ export async function POST(req: NextRequest) {
     );
 
     const data = await response.json();
+
+    console.log("💳 Square response:", data);
 
     if (!data.payment_link) {
       console.error("❌ Square failed:", data);
