@@ -37,8 +37,10 @@ export async function POST(req: NextRequest) {
 
     const payment = event.data.object.payment;
 
-    if (payment.status !== "COMPLETED") {
-      return new Response("Not completed", { status: 200 });
+    console.log("💳 PAYMENT STATUS:", payment.status);
+
+    if (!["COMPLETED", "APPROVED"].includes(payment.status)) {
+      return new Response("Not ready", { status: 200 });
     }
 
     const squareOrderId = payment.order_id;
