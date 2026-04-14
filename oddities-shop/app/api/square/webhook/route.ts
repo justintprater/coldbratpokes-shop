@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
 
       const emailRes = await resend.emails.send({
         // ✅ FIXED SENDER (NO NAME WRAPPING BUG)
-        from: "onboarding@resend.dev",
+        from: "orders@coldbratpokes.com",
         // 👉 once confirmed working, switch to:
         // from: "orders@coldbratpokes.com",
 
