@@ -1,112 +1,113 @@
-import { NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseAdmin = createClient(
+const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const signature = req.headers.get("x-square-hmacsha256-signature")!;
+    const body = await req.text();
 
-    console.log("WEBHOOK RECEIVED:", JSON.stringify(body, null, 2));
+    // Verify signature
+    const hmac = crypto.createHmac(
+      "sha256",
+      process.env.SQUARE_WEBHOOK_SIGNATURE_KEY!
+    );
+    hmac.update(body);
+    const digest = hmac.digest("base64");
 
-    const event = body;
+    if (digest !== signature) {
+      console.error("❌ Invalid webhook signature");
+      return new Response("Invalid signature", { status: 400 });
+    }
+
+    const event = JSON.parse(body);
+
+    console.log("🔥 WEBHOOK RECEIVED:", event.type);
 
     if (event.type !== "payment.updated") {
-      return NextResponse.json({ received: true });
+      return new Response("Ignored", { status: 200 });
     }
 
     const payment = event.data.object.payment;
 
-    const orderId = payment.order_id;
-
-    if (!orderId) {
-      console.error("No order_id in payment");
-      return NextResponse.json({ received: true });
+    if (payment.status !== "COMPLETED") {
+      return new Response("Not completed", { status: 200 });
     }
 
-    // ✅ 1. Mark order as paid
-    const { data: order, error: orderError } = await supabaseAdmin
+    const squareOrderId = payment.order_id;
+
+    // 🔍 Find order
+    const { data: order, error: orderError } = await supabase
       .from("orders")
-      .update({
-        status: "paid",
-        square_payment_id: payment.id,
-      })
-      .eq("square_order_id", orderId)
-      .select()
+      .select("*")
+      .eq("square_order_id", squareOrderId)
       .single();
 
     if (orderError || !order) {
-      console.error("ORDER UPDATE ERROR:", orderError);
-      return NextResponse.json({ received: true });
+      console.error("❌ Order not found:", orderError);
+      return new Response("Order not found", { status: 404 });
     }
 
-    console.log("ORDER MARKED PAID:", order.id);
+    // 🛑 IDEMPOTENCY CHECK
+    if (order.status === "paid") {
+      console.log("⚠️ Order already processed — skipping");
+      return new Response("Already processed", { status: 200 });
+    }
 
-    // ✅ 2. Get order items
-    const { data: items, error: itemsError } = await supabaseAdmin
+    console.log("📦 Processing order:", order.id);
+
+    // 🔍 Get order items
+    const { data: items, error: itemsError } = await supabase
       .from("order_items")
       .select("*")
       .eq("order_id", order.id);
 
     if (itemsError) {
-      console.error("ORDER ITEMS ERROR:", itemsError);
-      return NextResponse.json({ received: true });
+      console.error("❌ Failed to fetch order items:", itemsError);
+      return new Response("Error", { status: 500 });
     }
 
-    console.log("ORDER ITEMS:", items);
+    console.log("🧾 Order items:", items);
 
-    // ✅ 3. Update stock for each item
+    // 🔄 Update stock safely (atomic via RPC)
     for (const item of items) {
-      const productId = item.product_id;
-      const quantityPurchased = item.quantity;
+      const { error: stockError } = await supabase.rpc("decrement_stock", {
+        product_id_input: item.product_id,
+        quantity_input: item.quantity,
+      });
 
-      // get current stock
-      const { data: product, error: productError } = await supabaseAdmin
-        .from("products")
-        .select("quantity_available")
-        .eq("id", productId)
-        .single();
-
-      if (productError || !product) {
-        console.error("PRODUCT FETCH ERROR:", productError);
-        continue;
+      if (stockError) {
+        console.error("❌ Stock update failed:", stockError);
+        return new Response("Stock error", { status: 500 });
       }
 
-      const newQuantity = Math.max(
-        0,
-        product.quantity_available - quantityPurchased
-      );
-
-      // update product
-      const updateData: any = {
-        quantity_available: newQuantity,
-      };
-
-      // mark sold if 0
-      if (newQuantity === 0) {
-        updateData.status = "sold";
-      }
-
-      const { error: updateError } = await supabaseAdmin
-        .from("products")
-        .update(updateData)
-        .eq("id", productId);
-
-      if (updateError) {
-        console.error("STOCK UPDATE ERROR:", updateError);
-      } else {
-        console.log(
-          `UPDATED PRODUCT ${productId}: ${product.quantity_available} → ${newQuantity}`
-        );
-      }
+      console.log("✅ Stock updated for:", item.product_id);
     }
 
-    return NextResponse.json({ success: true });
+    // ✅ Mark order as paid
+    const { error: updateError } = await supabase
+      .from("orders")
+      .update({
+        status: "paid",
+        square_payment_id: payment.id,
+      })
+      .eq("id", order.id);
+
+    if (updateError) {
+      console.error("❌ Failed to update order:", updateError);
+      return new Response("Update failed", { status: 500 });
+    }
+
+    console.log("✅ Order marked as paid");
+
+    return new Response("Success", { status: 200 });
   } catch (err) {
-    console.error("WEBHOOK ERROR:", err);
-    return NextResponse.json({ received: true });
+    console.error("❌ Webhook error:", err);
+    return new Response("Server error", { status: 500 });
   }
 }
