@@ -19,7 +19,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ✅ VALIDATE + NORMALIZE ITEMS
     const normalizedItems = [];
 
     for (const item of items) {
@@ -33,7 +32,6 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (error || !product) {
-        console.error("❌ Product not found:", item.productId);
         return new Response(
           JSON.stringify({ error: "Product not found" }),
           { status: 400 }
@@ -41,7 +39,6 @@ export async function POST(req: NextRequest) {
       }
 
       if (product.quantity_available < quantity) {
-        console.error("❌ Not enough stock:", product.id);
         return new Response(
           JSON.stringify({ error: "Item out of stock" }),
           { status: 400 }
@@ -55,11 +52,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ✅ CREATE ORDER
+    // ✅ IMPORTANT: include required DB fields
+    const firstItem = normalizedItems[0];
+
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
         status: "created",
+        product_id: firstItem.productId,
+        quantity: firstItem.quantity,
       })
       .select()
       .single();
@@ -69,7 +70,6 @@ export async function POST(req: NextRequest) {
       return new Response("Order failed", { status: 500 });
     }
 
-    // ✅ INSERT ORDER ITEMS
     const orderItems = normalizedItems.map((item) => ({
       order_id: order.id,
       product_id: item.productId,
@@ -86,7 +86,6 @@ export async function POST(req: NextRequest) {
       return new Response("Items failed", { status: 500 });
     }
 
-    // ✅ CREATE SQUARE PAYMENT LINK
     const response = await fetch(
       "https://connect.squareup.com/v2/online-checkout/payment-links",
       {
@@ -114,8 +113,6 @@ export async function POST(req: NextRequest) {
 
     const data = await response.json();
 
-    console.log("💳 Square response:", data);
-
     if (!data.payment_link) {
       console.error("❌ Square failed:", data);
       return new Response("Square error", { status: 500 });
@@ -123,7 +120,6 @@ export async function POST(req: NextRequest) {
 
     const paymentLink = data.payment_link;
 
-    // ✅ SAVE SQUARE IDS
     await supabase
       .from("orders")
       .update({
