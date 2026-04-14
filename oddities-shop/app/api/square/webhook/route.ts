@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     const signature = req.headers.get("x-square-hmacsha256-signature")!;
     const body = await req.text();
 
-    // Verify signature
+    // ✅ Verify signature
     const hmac = crypto.createHmac(
       "sha256",
       process.env.SQUARE_WEBHOOK_SIGNATURE_KEY!
@@ -53,13 +53,29 @@ export async function POST(req: NextRequest) {
       return new Response("Order not found", { status: 404 });
     }
 
-    // 🛑 IDEMPOTENCY CHECK
+    // 🛑 HARD IDEMPOTENCY
     if (order.status === "paid") {
-      console.log("⚠️ Order already processed — skipping");
+      console.log("⚠️ Already paid — skipping");
       return new Response("Already processed", { status: 200 });
     }
 
-    console.log("📦 Processing order:", order.id);
+    if (order.status === "processing") {
+      console.log("⚠️ Already processing — skipping");
+      return new Response("Already processing", { status: 200 });
+    }
+
+    // 🔒 LOCK ORDER (CRITICAL)
+    const { error: lockError } = await supabase
+      .from("orders")
+      .update({ status: "processing" })
+      .eq("id", order.id);
+
+    if (lockError) {
+      console.error("❌ Failed to lock order:", lockError);
+      return new Response("Lock failed", { status: 500 });
+    }
+
+    console.log("🔒 Order locked");
 
     // 🔍 Get order items
     const { data: items, error: itemsError } = await supabase
@@ -74,7 +90,7 @@ export async function POST(req: NextRequest) {
 
     console.log("🧾 Order items:", items);
 
-    // 🔄 Update stock safely (atomic via RPC)
+    // 🔄 Update stock (SAFE)
     for (const item of items) {
       const { error: stockError } = await supabase.rpc("decrement_stock", {
         product_id_input: item.product_id,
@@ -83,13 +99,20 @@ export async function POST(req: NextRequest) {
 
       if (stockError) {
         console.error("❌ Stock update failed:", stockError);
+
+        // 🔁 rollback lock (optional but good)
+        await supabase
+          .from("orders")
+          .update({ status: "created" })
+          .eq("id", order.id);
+
         return new Response("Stock error", { status: 500 });
       }
 
-      console.log("✅ Stock updated for:", item.product_id);
+      console.log("✅ Stock updated:", item.product_id);
     }
 
-    // ✅ Mark order as paid
+    // ✅ Mark as paid
     const { error: updateError } = await supabase
       .from("orders")
       .update({
