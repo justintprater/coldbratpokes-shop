@@ -13,7 +13,6 @@ export default function CartPage() {
   const [products, setProducts] = useState<any>({});
   const [loading, setLoading] = useState(false);
 
-  // ✅ CUSTOMER STATE
   const [email, setEmail] = useState("");
   const [instagram, setInstagram] = useState("");
   const [phone, setPhone] = useState("");
@@ -80,21 +79,22 @@ export default function CartPage() {
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+
+        // ✅ FIXED HERE (FLAT STRUCTURE)
         body: JSON.stringify({
           items: cart,
-          customer: {
-            email,
-            instagram,
-            phone,
-            isDelivery,
-            address,
-          },
+          email,
+          instagram,
+          phone,
+          isDelivery,
+          address,
         }),
       });
 
       const json = await res.json();
 
       if (!res.ok || !json.url) {
+        console.error("❌ Checkout failed:", json);
         alert("Checkout failed");
         return;
       }
@@ -173,7 +173,6 @@ export default function CartPage() {
             })}
           </div>
 
-          {/* ✅ CONTACT FORM */}
           <div className="mt-10 space-y-4 bg-black/30 p-4 rounded-xl backdrop-blur-sm">
             <h2 className="text-lg">Contact Info</h2>
 
@@ -181,21 +180,21 @@ export default function CartPage() {
               placeholder="Email (required)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:border-purple-500"
+              className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50"
             />
 
             <input
               placeholder="Instagram (required)"
               value={instagram}
               onChange={(e) => setInstagram(e.target.value)}
-              className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:border-purple-500"
+              className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50"
             />
 
             <input
               placeholder="Phone (optional)"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:border-purple-500"
+              className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50"
             />
 
             <label className="flex items-center gap-2">
@@ -212,12 +211,11 @@ export default function CartPage() {
                 placeholder="Address"
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
-                className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:border-purple-500"
+                className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50"
               />
             )}
           </div>
 
-          {/* TOTAL */}
           <div className="mt-10">
             <p>Subtotal: ${(subtotal / 100).toFixed(2)}</p>
             <p>Delivery: ${(deliveryFee / 100).toFixed(2)}</p>
