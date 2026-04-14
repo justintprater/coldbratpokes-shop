@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -10,35 +11,51 @@ export async function POST(req: NextRequest) {
   try {
     const { items } = await req.json();
 
+    console.log("🛒 ITEMS RECEIVED:", items);
+
     if (!items || items.length === 0) {
       return new Response(JSON.stringify({ error: "No items" }), {
         status: 400,
       });
     }
 
-    // 🛑 BACKEND STOCK VALIDATION
+    // ✅ VALIDATE + NORMALIZE ITEMS
+    const normalizedItems = [];
+
     for (const item of items) {
+      const quantity =
+        item.quantity && item.quantity > 0 ? item.quantity : 1;
+
       const { data: product, error } = await supabase
         .from("products")
-        .select("quantity_available")
+        .select("id, quantity_available")
         .eq("id", item.productId)
         .single();
 
       if (error || !product) {
-        return new Response(JSON.stringify({ error: "Product not found" }), {
-          status: 400,
-        });
+        console.error("❌ Product not found:", item.productId);
+        return new Response(
+          JSON.stringify({ error: "Product not found" }),
+          { status: 400 }
+        );
       }
 
-      if (product.quantity_available < item.quantity) {
+      if (product.quantity_available < quantity) {
+        console.error("❌ Not enough stock:", product.id);
         return new Response(
           JSON.stringify({ error: "Item out of stock" }),
           { status: 400 }
         );
       }
+
+      normalizedItems.push({
+        productId: product.id,
+        quantity,
+        price_cents: item.price_cents,
+      });
     }
 
-    // 🧾 Create order
+    // ✅ CREATE ORDER
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
@@ -52,8 +69,8 @@ export async function POST(req: NextRequest) {
       return new Response("Order failed", { status: 500 });
     }
 
-    // 🧾 Insert order items
-    const orderItems = items.map((item: any) => ({
+    // ✅ INSERT ORDER ITEMS
+    const orderItems = normalizedItems.map((item) => ({
       order_id: order.id,
       product_id: item.productId,
       quantity: item.quantity,
@@ -69,7 +86,7 @@ export async function POST(req: NextRequest) {
       return new Response("Items failed", { status: 500 });
     }
 
-    // 💳 Create Square payment link
+    // ✅ CREATE SQUARE PAYMENT LINK
     const response = await fetch(
       "https://connect.squareup.com/v2/online-checkout/payment-links",
       {
@@ -82,7 +99,7 @@ export async function POST(req: NextRequest) {
           idempotency_key: crypto.randomUUID(),
           order: {
             location_id: process.env.SQUARE_LOCATION_ID,
-            line_items: items.map((item: any) => ({
+            line_items: normalizedItems.map((item) => ({
               name: "Item",
               quantity: item.quantity.toString(),
               base_price_money: {
@@ -97,9 +114,16 @@ export async function POST(req: NextRequest) {
 
     const data = await response.json();
 
+    console.log("💳 Square response:", data);
+
+    if (!data.payment_link) {
+      console.error("❌ Square failed:", data);
+      return new Response("Square error", { status: 500 });
+    }
+
     const paymentLink = data.payment_link;
 
-    // 💾 Save Square IDs
+    // ✅ SAVE SQUARE IDS
     await supabase
       .from("orders")
       .update({
