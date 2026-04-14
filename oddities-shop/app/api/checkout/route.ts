@@ -11,8 +11,6 @@ export async function POST(req: NextRequest) {
   try {
     const { items } = await req.json();
 
-    console.log("🛒 ITEMS RECEIVED:", items);
-
     if (!items || items.length === 0) {
       return new Response(JSON.stringify({ error: "No items" }), {
         status: 400,
@@ -32,7 +30,6 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (error || !product) {
-        console.error("❌ Product not found:", item.productId);
         return new Response(
           JSON.stringify({ error: "Product not found" }),
           { status: 400 }
@@ -40,7 +37,6 @@ export async function POST(req: NextRequest) {
       }
 
       if (product.quantity_available < quantity) {
-        console.error("❌ Not enough stock:", product.id);
         return new Response(
           JSON.stringify({ error: "Item out of stock" }),
           { status: 400 }
@@ -56,7 +52,6 @@ export async function POST(req: NextRequest) {
 
     const firstItem = normalizedItems[0];
 
-    // ✅ REQUIRED fields for your DB (keep these)
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
@@ -88,7 +83,6 @@ export async function POST(req: NextRequest) {
       return new Response("Items failed", { status: 500 });
     }
 
-    // ✅ FIXED SQUARE ENV HANDLING (THIS WAS YOUR ISSUE)
     const squareBaseUrl =
       process.env.SQUARE_ENV === "sandbox"
         ? "https://connect.squareupsandbox.com"
@@ -115,13 +109,14 @@ export async function POST(req: NextRequest) {
               },
             })),
           },
+          checkout_options: {
+            redirect_url: `${process.env.NEXT_PUBLIC_SITE_URL}/thank-you`,
+          },
         }),
       }
     );
 
     const data = await response.json();
-
-    console.log("💳 Square response:", data);
 
     if (!data.payment_link) {
       console.error("❌ Square failed:", data);

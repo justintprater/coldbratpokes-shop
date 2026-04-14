@@ -47,6 +47,13 @@ export default function CartPage() {
     fetchProducts();
   }, [cart]);
 
+  function removeFromCart(productId: string) {
+    const updated = cart.filter((item) => item.productId !== productId);
+    setCart(updated);
+    localStorage.setItem("cart", JSON.stringify(updated));
+    window.dispatchEvent(new Event("storage"));
+  }
+
   async function handleCheckout() {
     if (cart.length === 0) return;
 
@@ -114,13 +121,27 @@ export default function CartPage() {
                     />
                   )}
 
-                  <div>
+                  <div className="flex-1">
                     <p className="text-lg font-semibold">
                       {product.title}
                     </p>
+
+                    {/* ✅ PRICE ADDED */}
+                    <p className="opacity-80">
+                      ${(product.price_cents / 100).toFixed(2)}
+                    </p>
+
                     <p className="opacity-70">
                       Qty: {item.quantity}
                     </p>
+
+                    {/* ✅ REMOVE BUTTON */}
+                    <button
+                      onClick={() => removeFromCart(item.productId)}
+                      className="mt-2 text-sm text-red-400 hover:text-red-300 transition"
+                    >
+                      Remove
+                    </button>
                   </div>
                 </div>
               );
@@ -132,7 +153,6 @@ export default function CartPage() {
               Total: ${(total / 100).toFixed(2)}
             </h2>
 
-            {/* ✅ MATCHES YOUR PRODUCT PAGE BUTTON */}
             <button
               onClick={handleCheckout}
               disabled={loading}
