@@ -13,7 +13,7 @@ export default function CartPage() {
   const [products, setProducts] = useState<any>({});
   const [loading, setLoading] = useState(false);
 
-  // ✅ NEW STATE
+  // ✅ CUSTOMER STATE
   const [email, setEmail] = useState("");
   const [instagram, setInstagram] = useState("");
   const [phone, setPhone] = useState("");
@@ -64,7 +64,6 @@ export default function CartPage() {
   async function handleCheckout() {
     if (cart.length === 0) return;
 
-    // ✅ VALIDATION
     if (!email || !instagram) {
       alert("Email and Instagram are required");
       return;
@@ -174,32 +173,31 @@ export default function CartPage() {
             })}
           </div>
 
-          {/* ✅ CUSTOMER INFO */}
-          <div className="mt-10 space-y-4">
+          {/* ✅ CONTACT FORM */}
+          <div className="mt-10 space-y-4 bg-black/30 p-4 rounded-xl backdrop-blur-sm">
             <h2 className="text-lg">Contact Info</h2>
 
             <input
               placeholder="Email (required)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-2 text-black rounded"
+              className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:border-purple-500"
             />
 
             <input
               placeholder="Instagram (required)"
               value={instagram}
               onChange={(e) => setInstagram(e.target.value)}
-              className="w-full p-2 text-black rounded"
+              className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:border-purple-500"
             />
 
             <input
               placeholder="Phone (optional)"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="w-full p-2 text-black rounded"
+              className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:border-purple-500"
             />
 
-            {/* DELIVERY TOGGLE */}
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -214,7 +212,7 @@ export default function CartPage() {
                 placeholder="Address"
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
-                className="w-full p-2 text-black rounded"
+                className="w-full p-2 rounded bg-black/40 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:border-purple-500"
               />
             )}
           </div>
