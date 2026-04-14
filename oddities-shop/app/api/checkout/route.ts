@@ -9,8 +9,14 @@ const supabase = createClient(
 
 export async function POST(req: NextRequest) {
   try {
-    const { items, email, instagram, phone, isDelivery, address } =
-      await req.json();
+    const {
+      items,
+      email,
+      instagram,
+      phone,
+      isDelivery,
+      address,
+    } = await req.json();
 
     if (!items || items.length === 0) {
       return new Response(JSON.stringify({ error: "No items" }), {
@@ -18,18 +24,23 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (!email || !instagram) {
+      return new Response("Missing contact info", { status: 400 });
+    }
+
     const normalizedItems = [];
 
     for (const item of items) {
       const quantity = item.quantity > 0 ? item.quantity : 1;
 
-      const { data: product } = await supabase
+      const { data: product, error } = await supabase
         .from("products")
         .select("id, quantity_available, price_cents")
         .eq("id", item.productId)
         .single();
 
-      if (!product) {
+      if (error || !product) {
+        console.error("❌ Product fetch failed:", error);
         return new Response("Product not found", { status: 400 });
       }
 
@@ -44,7 +55,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 💥 ADD DELIVERY FEE
+    // ✅ DELIVERY
     if (isDelivery) {
       normalizedItems.push({
         productId: "delivery",
@@ -53,8 +64,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ✅ STORE METADATA HERE
-    const { data: order } = await supabase
+    // 🔥 SAFE INSERT WITH ERROR HANDLING
+    const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
         status: "created",
@@ -69,15 +80,30 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
 
-    // insert items
-    await supabase.from("order_items").insert(
-      normalizedItems.map((item) => ({
-        order_id: order.id,
-        product_id: item.productId,
-        quantity: item.quantity,
-        price_cents: item.price_cents,
-      }))
-    );
+    if (orderError || !order) {
+      console.error("❌ ORDER INSERT FAILED:", orderError);
+      return new Response("Order failed", { status: 500 });
+    }
+
+    console.log("✅ Order created:", order.id);
+
+    // ✅ INSERT ITEMS
+    const { error: itemsError } = await supabase
+      .from("order_items")
+      .insert(
+        normalizedItems.map((item) => ({
+          order_id: order.id,
+          product_id:
+            item.productId === "delivery" ? null : item.productId,
+          quantity: item.quantity,
+          price_cents: item.price_cents,
+        }))
+      );
+
+    if (itemsError) {
+      console.error("❌ ITEMS INSERT FAILED:", itemsError);
+      return new Response("Items failed", { status: 500 });
+    }
 
     const squareBaseUrl =
       process.env.SQUARE_ENV === "sandbox"
@@ -97,7 +123,8 @@ export async function POST(req: NextRequest) {
           order: {
             location_id: process.env.SQUARE_LOCATION_ID,
             line_items: normalizedItems.map((item) => ({
-              name: item.productId === "delivery" ? "Delivery" : "Item",
+              name:
+                item.productId === "delivery" ? "Delivery" : "Item",
               quantity: item.quantity.toString(),
               base_price_money: {
                 amount: item.price_cents,
@@ -114,6 +141,11 @@ export async function POST(req: NextRequest) {
 
     const data = await response.json();
 
+    if (!data.payment_link) {
+      console.error("❌ Square failed:", data);
+      return new Response("Square error", { status: 500 });
+    }
+
     await supabase
       .from("orders")
       .update({
@@ -126,7 +158,7 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err) {
-    console.error(err);
-    return new Response("Error", { status: 500 });
+    console.error("❌ CHECKOUT CRASH:", err);
+    return new Response("Server error", { status: 500 });
   }
 }
