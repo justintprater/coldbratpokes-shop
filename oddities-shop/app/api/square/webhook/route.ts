@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
       return new Response("Order not found", { status: 404 });
     }
 
+    // 🛑 Idempotency
     if (order.status === "paid") {
       console.log("⚠️ Already paid — skipping");
       return new Response("Already processed", { status: 200 });
@@ -64,6 +65,7 @@ export async function POST(req: NextRequest) {
       return new Response("Already processing", { status: 200 });
     }
 
+    // 🔒 Lock order
     const { error: lockError } = await supabase
       .from("orders")
       .update({ status: "processing" })
@@ -74,23 +76,44 @@ export async function POST(req: NextRequest) {
       return new Response("Lock failed", { status: 500 });
     }
 
+    console.log("🔒 Order locked");
+
+    // 🔍 Get items
     const { data: items, error: itemsError } = await supabase
       .from("order_items")
       .select("*")
       .eq("order_id", order.id);
 
     if (itemsError) {
+      console.error("❌ Failed to fetch items:", itemsError);
       return new Response("Error", { status: 500 });
     }
 
+    console.log("🧾 Items:", items);
+
+    // 🔄 Update stock
     for (const item of items) {
-      await supabase.rpc("decrement_stock", {
+      const { error: stockError } = await supabase.rpc("decrement_stock", {
         product_id_input: item.product_id,
         quantity_input: item.quantity,
       });
+
+      if (stockError) {
+        console.error("❌ Stock error:", stockError);
+
+        await supabase
+          .from("orders")
+          .update({ status: "created" })
+          .eq("id", order.id);
+
+        return new Response("Stock error", { status: 500 });
+      }
+
+      console.log("✅ Stock updated:", item.product_id);
     }
 
-    await supabase
+    // ✅ Mark paid
+    const { error: updateError } = await supabase
       .from("orders")
       .update({
         status: "paid",
@@ -98,28 +121,47 @@ export async function POST(req: NextRequest) {
       })
       .eq("id", order.id);
 
-    // ✅ EMAIL (NEW — nothing removed)
-    const meta = order.metadata || {};
+    if (updateError) {
+      console.error("❌ Update failed:", updateError);
+      return new Response("Update failed", { status: 500 });
+    }
 
-    await resend.emails.send({
-      from: "ColdBratPokes <onboarding@resend.dev>",
-      to: process.env.OWNER_EMAIL!,
-      subject: "New Order 💸",
-      html: `
-        <h2>New Order</h2>
-        <p><b>Email:</b> ${meta.email}</p>
-        <p><b>Instagram:</b> ${meta.instagram}</p>
-        <p><b>Phone:</b> ${meta.phone || "N/A"}</p>
-        <p><b>Delivery:</b> ${meta.isDelivery ? "Yes" : "Pickup"}</p>
-        <p><b>Address:</b> ${meta.address || "N/A"}</p>
-      `,
-    });
+    console.log("✅ Order marked paid");
 
-    console.log("📧 Email sent");
+    // 📧 EMAIL
+    try {
+      console.log("🚨 SENDING EMAIL");
+
+      const meta = order.metadata || {};
+
+      const emailRes = await resend.emails.send({
+        // ✅ FIXED SENDER (NO NAME WRAPPING BUG)
+        from: "onboarding@resend.dev",
+        // 👉 once confirmed working, switch to:
+        // from: "orders@coldbratpokes.com",
+
+        to: process.env.OWNER_EMAIL!,
+        subject: "New Order 💸",
+        html: `
+          <h2>New Order</h2>
+          <p><b>Email:</b> ${meta.email || "N/A"}</p>
+          <p><b>Instagram:</b> ${meta.instagram || "N/A"}</p>
+          <p><b>Phone:</b> ${meta.phone || "N/A"}</p>
+          <p><b>Delivery:</b> ${meta.isDelivery ? "Yes" : "Pickup"}</p>
+          <p><b>Address:</b> ${meta.address || "N/A"}</p>
+        `,
+      });
+
+      console.log("✅ EMAIL SENT:", emailRes);
+
+    } catch (emailErr) {
+      console.error("❌ EMAIL FAILED:", emailErr);
+    }
 
     return new Response("Success", { status: 200 });
+
   } catch (err) {
-    console.error("❌ Webhook error:", err);
+    console.error("❌ Webhook crash:", err);
     return new Response("Server error", { status: 500 });
   }
 }
