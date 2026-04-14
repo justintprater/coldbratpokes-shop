@@ -13,6 +13,13 @@ export default function CartPage() {
   const [products, setProducts] = useState<any>({});
   const [loading, setLoading] = useState(false);
 
+  // ✅ NEW STATE
+  const [email, setEmail] = useState("");
+  const [instagram, setInstagram] = useState("");
+  const [phone, setPhone] = useState("");
+  const [isDelivery, setIsDelivery] = useState(false);
+  const [address, setAddress] = useState("");
+
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem("cart") || "[]");
     setCart(stored);
@@ -57,6 +64,17 @@ export default function CartPage() {
   async function handleCheckout() {
     if (cart.length === 0) return;
 
+    // ✅ VALIDATION
+    if (!email || !instagram) {
+      alert("Email and Instagram are required");
+      return;
+    }
+
+    if (isDelivery && !address) {
+      alert("Address required for delivery");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -65,6 +83,13 @@ export default function CartPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: cart,
+          customer: {
+            email,
+            instagram,
+            phone,
+            isDelivery,
+            address,
+          },
         }),
       });
 
@@ -87,11 +112,14 @@ export default function CartPage() {
     }
   }
 
-  const total = cart.reduce((sum, item) => {
+  const subtotal = cart.reduce((sum, item) => {
     const product = products[item.productId];
     if (!product) return sum;
     return sum + product.price_cents * item.quantity;
   }, 0);
+
+  const deliveryFee = isDelivery ? 1000 : 0;
+  const total = subtotal + deliveryFee;
 
   return (
     <main className="max-w-2xl mx-auto px-6 py-16 text-white">
@@ -126,7 +154,6 @@ export default function CartPage() {
                       {product.title}
                     </p>
 
-                    {/* ✅ PRICE ADDED */}
                     <p className="opacity-80">
                       ${(product.price_cents / 100).toFixed(2)}
                     </p>
@@ -135,7 +162,6 @@ export default function CartPage() {
                       Qty: {item.quantity}
                     </p>
 
-                    {/* ✅ REMOVE BUTTON */}
                     <button
                       onClick={() => removeFromCart(item.productId)}
                       className="mt-2 text-sm text-red-400 hover:text-red-300 transition"
@@ -148,7 +174,56 @@ export default function CartPage() {
             })}
           </div>
 
+          {/* ✅ CUSTOMER INFO */}
+          <div className="mt-10 space-y-4">
+            <h2 className="text-lg">Contact Info</h2>
+
+            <input
+              placeholder="Email (required)"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full p-2 text-black rounded"
+            />
+
+            <input
+              placeholder="Instagram (required)"
+              value={instagram}
+              onChange={(e) => setInstagram(e.target.value)}
+              className="w-full p-2 text-black rounded"
+            />
+
+            <input
+              placeholder="Phone (optional)"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full p-2 text-black rounded"
+            />
+
+            {/* DELIVERY TOGGLE */}
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={isDelivery}
+                onChange={() => setIsDelivery(!isDelivery)}
+              />
+              Delivery (+$10)
+            </label>
+
+            {isDelivery && (
+              <input
+                placeholder="Address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                className="w-full p-2 text-black rounded"
+              />
+            )}
+          </div>
+
+          {/* TOTAL */}
           <div className="mt-10">
+            <p>Subtotal: ${(subtotal / 100).toFixed(2)}</p>
+            <p>Delivery: ${(deliveryFee / 100).toFixed(2)}</p>
+
             <h2 className="text-lg mb-4">
               Total: ${(total / 100).toFixed(2)}
             </h2>
