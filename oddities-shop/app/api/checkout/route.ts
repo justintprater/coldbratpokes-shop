@@ -25,13 +25,15 @@ export async function POST(req: NextRequest) {
       const quantity =
         item.quantity && item.quantity > 0 ? item.quantity : 1;
 
+      // ✅ ALWAYS FETCH PRICE FROM DB (NOT FRONTEND)
       const { data: product, error } = await supabase
         .from("products")
-        .select("id, quantity_available")
+        .select("id, quantity_available, price_cents")
         .eq("id", item.productId)
         .single();
 
       if (error || !product) {
+        console.error("❌ Product not found:", item.productId);
         return new Response(
           JSON.stringify({ error: "Product not found" }),
           { status: 400 }
@@ -39,6 +41,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (product.quantity_available < quantity) {
+        console.error("❌ Not enough stock:", product.id);
         return new Response(
           JSON.stringify({ error: "Item out of stock" }),
           { status: 400 }
@@ -48,13 +51,13 @@ export async function POST(req: NextRequest) {
       normalizedItems.push({
         productId: product.id,
         quantity,
-        price_cents: item.price_cents,
+        price_cents: product.price_cents, // ✅ FIXED HERE
       });
     }
 
-    // ✅ IMPORTANT: include required DB fields
     const firstItem = normalizedItems[0];
 
+    // ✅ CREATE ORDER (keep required fields)
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
@@ -70,6 +73,7 @@ export async function POST(req: NextRequest) {
       return new Response("Order failed", { status: 500 });
     }
 
+    // ✅ INSERT ORDER ITEMS (now guaranteed valid)
     const orderItems = normalizedItems.map((item) => ({
       order_id: order.id,
       product_id: item.productId,
@@ -86,6 +90,7 @@ export async function POST(req: NextRequest) {
       return new Response("Items failed", { status: 500 });
     }
 
+    // ✅ CREATE SQUARE LINK
     const response = await fetch(
       "https://connect.squareup.com/v2/online-checkout/payment-links",
       {
