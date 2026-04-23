@@ -3,6 +3,9 @@ import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 
+// 🔥 force this route to always run dynamically (no caching)
+export const dynamic = "force-dynamic";
+
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -11,9 +14,10 @@ const supabase = createClient(
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
 export async function POST(req: NextRequest) {
-  console.log("🟢 WEBHOOK START");
+  console.log("🚨 WEBHOOK HIT 🚨");
 
   try {
+    // 🔐 verify signature
     const signature = req.headers.get("x-square-hmacsha256-signature")!;
     const body = await req.text();
 
@@ -29,8 +33,8 @@ export async function POST(req: NextRequest) {
       return new Response("Invalid signature", { status: 400 });
     }
 
+    // 📦 parse event
     const event = JSON.parse(body);
-
     console.log("📦 EVENT:", event.type);
 
     if (event.type !== "payment.updated") {
@@ -38,11 +42,11 @@ export async function POST(req: NextRequest) {
     }
 
     const payment = event.data.object.payment;
-
     console.log("💳 STATUS:", payment.status);
 
     const squareOrderId = payment.order_id;
 
+    // 🔍 find order
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .select("*")
@@ -54,9 +58,9 @@ export async function POST(req: NextRequest) {
       return new Response("Order not found", { status: 404 });
     }
 
-    console.log("✅ Order:", order.id);
+    console.log("✅ Order found:", order.id);
 
-    // 🛑 Prevent duplicate emails ONLY if already paid
+    // 🛑 avoid duplicate processing
     if (order.status === "paid") {
       console.log("⚠️ Already paid — skipping");
       return new Response("Already processed", { status: 200 });
@@ -68,7 +72,7 @@ export async function POST(req: NextRequest) {
       .update({ status: "processing" })
       .eq("id", order.id);
 
-    // 🔍 get items (non-blocking)
+    // 📦 fetch items
     const { data: items, error: itemsError } = await supabase
       .from("order_items")
       .select("*")
@@ -105,7 +109,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 💾 mark paid (non-blocking safety)
+    // 💾 mark paid
     const { error: updateError } = await supabase
       .from("orders")
       .update({
@@ -117,17 +121,17 @@ export async function POST(req: NextRequest) {
     if (updateError) {
       console.error("❌ Failed to mark paid:", updateError);
     } else {
-      console.log("✅ Marked paid");
+      console.log("✅ Order marked paid");
     }
 
-    // 📧 EMAIL (GUARANTEED PATH)
+    // 📧 SEND EMAIL (this will ALWAYS attempt)
     try {
       console.log("🚨 SENDING EMAIL");
 
       const meta = order.metadata || {};
 
       const emailRes = await resend.emails.send({
-        from: "onboarding@resend.dev", // keep safe for now
+        from: "onboarding@resend.dev",
         to: process.env.OWNER_EMAIL!,
         subject: "New Order 💸",
         html: `
