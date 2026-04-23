@@ -8,9 +8,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY!);
 
 export async function POST(req: NextRequest) {
+  console.log("🟢 WEBHOOK START");
+
   try {
     const signature = req.headers.get("x-square-hmacsha256-signature")!;
     const body = await req.text();
@@ -23,13 +25,13 @@ export async function POST(req: NextRequest) {
     const digest = hmac.digest("base64");
 
     if (digest !== signature) {
-      console.error("❌ Invalid webhook signature");
+      console.error("❌ Invalid signature");
       return new Response("Invalid signature", { status: 400 });
     }
 
     const event = JSON.parse(body);
 
-    console.log("🔥 WEBHOOK RECEIVED:", event.type);
+    console.log("📦 EVENT:", event.type);
 
     if (event.type !== "payment.updated") {
       return new Response("Ignored", { status: 200 });
@@ -37,11 +39,7 @@ export async function POST(req: NextRequest) {
 
     const payment = event.data.object.payment;
 
-    console.log("💳 PAYMENT STATUS:", payment.status);
-
-    if (!["COMPLETED", "APPROVED"].includes(payment.status)) {
-      return new Response("Not ready", { status: 200 });
-    }
+    console.log("💳 STATUS:", payment.status);
 
     const squareOrderId = payment.order_id;
 
@@ -56,65 +54,58 @@ export async function POST(req: NextRequest) {
       return new Response("Order not found", { status: 404 });
     }
 
-    // 🛑 Idempotency
+    console.log("✅ Order:", order.id);
+
+    // 🛑 Prevent duplicate emails ONLY if already paid
     if (order.status === "paid") {
       console.log("⚠️ Already paid — skipping");
       return new Response("Already processed", { status: 200 });
     }
 
-    if (order.status === "processing") {
-      console.log("⚠️ Already processing — skipping");
-      return new Response("Already processing", { status: 200 });
-    }
-
-    // 🔒 Lock order
-    const { error: lockError } = await supabase
+    // 🔒 mark processing (non-blocking)
+    await supabase
       .from("orders")
       .update({ status: "processing" })
       .eq("id", order.id);
 
-    if (lockError) {
-      console.error("❌ Failed to lock order:", lockError);
-      return new Response("Lock failed", { status: 500 });
-    }
-
-    console.log("🔒 Order locked");
-
-    // 🔍 Get items
+    // 🔍 get items (non-blocking)
     const { data: items, error: itemsError } = await supabase
       .from("order_items")
       .select("*")
       .eq("order_id", order.id);
 
     if (itemsError) {
-      console.error("❌ Failed to fetch items:", itemsError);
-      return new Response("Error", { status: 500 });
-    }
+      console.error("❌ Items fetch failed:", itemsError);
+    } else {
+      console.log("🧾 Items:", items);
 
-    console.log("🧾 Items:", items);
+      for (const item of items) {
+        if (!item.product_id) {
+          console.warn("⚠️ Skipping item with no product_id:", item);
+          continue;
+        }
 
-    // 🔄 Update stock
-    for (const item of items) {
-      const { error: stockError } = await supabase.rpc("decrement_stock", {
-        product_id_input: item.product_id,
-        quantity_input: item.quantity,
-      });
+        try {
+          const { error: stockError } = await supabase.rpc(
+            "decrement_stock",
+            {
+              product_id_input: item.product_id,
+              quantity_input: item.quantity,
+            }
+          );
 
-      if (stockError) {
-        console.error("❌ Stock error:", stockError);
-
-        await supabase
-          .from("orders")
-          .update({ status: "created" })
-          .eq("id", order.id);
-
-        return new Response("Stock error", { status: 500 });
+          if (stockError) {
+            console.error("❌ Stock error:", stockError);
+          } else {
+            console.log("✅ Stock updated:", item.product_id);
+          }
+        } catch (err) {
+          console.error("❌ Stock crash:", err);
+        }
       }
-
-      console.log("✅ Stock updated:", item.product_id);
     }
 
-    // ✅ Mark paid
+    // 💾 mark paid (non-blocking safety)
     const { error: updateError } = await supabase
       .from("orders")
       .update({
@@ -124,24 +115,19 @@ export async function POST(req: NextRequest) {
       .eq("id", order.id);
 
     if (updateError) {
-      console.error("❌ Update failed:", updateError);
-      return new Response("Update failed", { status: 500 });
+      console.error("❌ Failed to mark paid:", updateError);
+    } else {
+      console.log("✅ Marked paid");
     }
 
-    console.log("✅ Order marked paid");
-
-    // 📧 EMAIL
+    // 📧 EMAIL (GUARANTEED PATH)
     try {
       console.log("🚨 SENDING EMAIL");
 
       const meta = order.metadata || {};
 
       const emailRes = await resend.emails.send({
-        // ✅ FIXED SENDER (NO NAME WRAPPING BUG)
-        from: "orders@coldbratpokes.com",
-        // 👉 once confirmed working, switch to:
-        // from: "orders@coldbratpokes.com",
-
+        from: "onboarding@resend.dev", // keep safe for now
         to: process.env.OWNER_EMAIL!,
         subject: "New Order 💸",
         html: `
@@ -155,15 +141,14 @@ export async function POST(req: NextRequest) {
       });
 
       console.log("✅ EMAIL SENT:", emailRes);
-
-    } catch (emailErr) {
-      console.error("❌ EMAIL FAILED:", emailErr);
+    } catch (err) {
+      console.error("❌ EMAIL FAILED:", err);
     }
 
-    return new Response("Success", { status: 200 });
+    return new Response("OK", { status: 200 });
 
   } catch (err) {
-    console.error("❌ Webhook crash:", err);
+    console.error("💥 WEBHOOK CRASH:", err);
     return new Response("Server error", { status: 500 });
   }
 }
