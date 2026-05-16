@@ -63,6 +63,8 @@ export async function POST(req: Request) {
       });
     }
 
+    console.log("[checkout] env check — SQUARE_ENV:", process.env.SQUARE_ENV ?? "(unset, defaulting to sandbox)", "| token present:", !!process.env.SQUARE_ACCESS_TOKEN, "| locationId:", locationId);
+
     const fulfillments =
       fulfillment === "shipping"
         ? [
@@ -81,6 +83,20 @@ export async function POST(req: Request) {
             },
           ];
 
+    const paymentLinkPayload = {
+      idempotency_key: randomUUID(),
+      order: {
+        location_id: locationId,
+        line_items: lineItems,
+        fulfillments,
+      },
+      checkout_options: {
+        redirect_url: `${siteUrl}/thank-you`,
+      },
+    };
+
+    console.log("[checkout] payment link payload:", JSON.stringify(paymentLinkPayload));
+
     const createPaymentLinkRes = await fetch(
       `${SQUARE_BASE}/v2/online-checkout/payment-links`,
       {
@@ -89,24 +105,14 @@ export async function POST(req: Request) {
           Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          idempotency_key: randomUUID(),
-          order: {
-            location_id: locationId,
-            line_items: lineItems,
-            fulfillments,
-          },
-          checkout_options: {
-            redirect_url: `${siteUrl}/thank-you`,
-          },
-        }),
+        body: JSON.stringify(paymentLinkPayload),
       }
     );
 
     const paymentLinkData = await createPaymentLinkRes.json();
 
     if (!createPaymentLinkRes.ok) {
-      console.error("Square payment link error:", paymentLinkData);
+      console.error("[checkout] Square error — status:", createPaymentLinkRes.status, "| body:", JSON.stringify(paymentLinkData));
       return NextResponse.json(
         { error: "Square payment link failed" },
         { status: 500 }
