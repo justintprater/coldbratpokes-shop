@@ -233,6 +233,7 @@ export default function CartPage() {
               placeholder="Full name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              required
             />
             <input
               style={inputStyle}
@@ -240,6 +241,7 @@ export default function CartPage() {
               placeholder="Email address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              required
             />
             <input
               style={inputStyle}
@@ -247,6 +249,7 @@ export default function CartPage() {
               placeholder="Instagram handle (e.g. @yourhandle)"
               value={instagram}
               onChange={(e) => setInstagram(e.target.value)}
+              required
             />
           </div>
 

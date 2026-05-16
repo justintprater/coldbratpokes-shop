@@ -23,7 +23,7 @@ export async function POST(req: Request) {
 
     const { items, fulfillment = "shipping", customerInfo } = await req.json();
 
-    console.log("[checkout] fulfillment:", fulfillment, "| customer email:", customerInfo?.email ?? "(none)");
+    console.log("[checkout] fulfillment:", fulfillment, "| email present:", !!customerInfo?.email);
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
@@ -32,22 +32,21 @@ export async function POST(req: Request) {
       );
     }
 
-    const lineItems: any[] = [];
+    // First pass: validate stock and build line items, caching products to avoid re-fetching
+    const lineItems: { name: string; quantity: string; base_price_money: { amount: number; currency: string } }[] = [];
+    const productPriceCache = new Map<string, number>();
 
     for (const item of items) {
       const { productId, quantity = 1 } = item;
 
       const { data: product, error } = await supabaseAdmin
         .from("products")
-        .select("*")
+        .select("id, title, price_cents, quantity_available, currency")
         .eq("id", productId)
         .single();
 
       if (error || !product) {
-        return NextResponse.json(
-          { error: "Product not found" },
-          { status: 404 }
-        );
+        return NextResponse.json({ error: "Product not found" }, { status: 404 });
       }
 
       if (product.quantity_available < quantity) {
@@ -56,6 +55,8 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
+
+      productPriceCache.set(productId, product.price_cents);
 
       lineItems.push({
         name: product.title,
@@ -67,22 +68,14 @@ export async function POST(req: Request) {
       });
     }
 
-    // Delivery fee added as an explicit line item so Square charges it
+    // Delivery fee is an explicit line item so Square charges it
     if (fulfillment === "shipping") {
       lineItems.push({
         name: "Delivery",
         quantity: "1",
-        base_price_money: {
-          amount: DELIVERY_FEE_CENTS,
-          currency: "USD",
-        },
+        base_price_money: { amount: DELIVERY_FEE_CENTS, currency: "USD" },
       });
-      console.log("[checkout] delivery fee applied: $10.00");
-    } else {
-      console.log("[checkout] pickup selected — no delivery fee");
     }
-
-    console.log("[checkout] env check — SQUARE_ENV:", process.env.SQUARE_ENV ?? "(unset, defaulting to sandbox)", "| token present:", !!process.env.SQUARE_ACCESS_TOKEN, "| locationId:", locationId);
 
     const fulfillments =
       fulfillment === "pickup"
@@ -90,14 +83,12 @@ export async function POST(req: Request) {
             {
               type: "PICKUP",
               state: "PROPOSED",
-              pickup_details: {
-                schedule_type: "ASAP",
-              },
+              pickup_details: { schedule_type: "ASAP" },
             },
           ]
         : undefined;
 
-    const paymentLinkPayload: any = {
+    const paymentLinkPayload = {
       idempotency_key: randomUUID(),
       order: {
         location_id: locationId,
@@ -106,19 +97,12 @@ export async function POST(req: Request) {
       },
       checkout_options: {
         redirect_url: `${siteUrl}/thank-you`,
-        // Tell Square to collect a shipping address for delivery orders
         ask_for_shipping_address: fulfillment === "shipping",
       },
+      ...(customerInfo?.email
+        ? { pre_populated_data: { buyer_email: customerInfo.email } }
+        : {}),
     };
-
-    // Pre-populate buyer email so Square's checkout form starts filled in
-    if (customerInfo?.email) {
-      paymentLinkPayload.pre_populated_data = {
-        buyer_email: customerInfo.email,
-      };
-    }
-
-    console.log("[checkout] payment link payload:", JSON.stringify(paymentLinkPayload));
 
     const createPaymentLinkRes = await fetch(
       `${SQUARE_BASE}/v2/online-checkout/payment-links`,
@@ -142,11 +126,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const squareOrderId =
-      paymentLinkData.related_resources?.orders?.[0]?.id;
+    const squareOrderId = paymentLinkData.related_resources?.orders?.[0]?.id;
 
     if (!squareOrderId) {
-      console.error("Square order ID missing:", paymentLinkData);
+      console.error("[checkout] Square order ID missing from response");
       return NextResponse.json(
         { error: "Square order ID missing" },
         { status: 500 }
@@ -166,16 +149,13 @@ export async function POST(req: Request) {
       });
 
     if (orderInsertError) {
-      console.error("ORDER INSERT ERROR:", orderInsertError);
-      return NextResponse.json(
-        { error: "Order insert failed" },
-        { status: 500 }
-      );
+      console.error("[checkout] order insert failed:", orderInsertError);
+      return NextResponse.json({ error: "Order insert failed" }, { status: 500 });
     }
 
-    // Store customer contact info — requires customer_name/customer_email/customer_instagram
+    // Store customer contact info. Requires customer_name/customer_email/customer_instagram
     // columns on the orders table. Fails gracefully if migration hasn't run yet.
-    if (customerInfo?.email || customerInfo?.name || customerInfo?.instagram) {
+    if (customerInfo?.name || customerInfo?.email || customerInfo?.instagram) {
       const { error: customerUpdateError } = await supabaseAdmin
         .from("orders")
         .update({
@@ -186,51 +166,32 @@ export async function POST(req: Request) {
         .eq("id", orderId);
 
       if (customerUpdateError) {
-        console.error("[checkout] customer info update failed (run Supabase migration?):", customerUpdateError.message);
+        console.error("[checkout] customer info update failed (migration needed?):", customerUpdateError.message);
       } else {
-        console.log("[checkout] customer info stored — name:", customerInfo.name, "| email:", customerInfo.email, "| instagram:", customerInfo.instagram);
+        console.log("[checkout] customer info stored for order:", orderId);
       }
     }
 
-    const orderItemsInsert = [];
-
-    for (const item of items) {
-      const { productId, quantity = 1 } = item;
-
-      const { data: product } = await supabaseAdmin
-        .from("products")
-        .select("price_cents")
-        .eq("id", productId)
-        .single();
-
-      orderItemsInsert.push({
-        order_id: orderId,
-        product_id: productId,
-        quantity,
-        price_cents: product!.price_cents,
-      });
-    }
+    // Second pass: insert order items using cached prices — no extra Supabase queries
+    const orderItemsInsert = items.map(({ productId, quantity = 1 }: { productId: string; quantity?: number }) => ({
+      order_id: orderId,
+      product_id: productId,
+      quantity,
+      price_cents: productPriceCache.get(productId)!,
+    }));
 
     const { error: itemsError } = await supabaseAdmin
       .from("order_items")
       .insert(orderItemsInsert);
 
     if (itemsError) {
-      console.error("ORDER ITEMS INSERT ERROR:", itemsError);
-      return NextResponse.json(
-        { error: "Order items insert failed" },
-        { status: 500 }
-      );
+      console.error("[checkout] order items insert failed:", itemsError);
+      return NextResponse.json({ error: "Order items insert failed" }, { status: 500 });
     }
 
-    return NextResponse.json({
-      checkoutUrl: paymentLinkData.payment_link.url,
-    });
+    return NextResponse.json({ checkoutUrl: paymentLinkData.payment_link.url });
   } catch (err) {
-    console.error("Checkout error:", err);
-    return NextResponse.json(
-      { error: "Checkout failed" },
-      { status: 500 }
-    );
+    console.error("[checkout] unhandled error:", err);
+    return NextResponse.json({ error: "Checkout failed" }, { status: 500 });
   }
 }

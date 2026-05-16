@@ -8,12 +8,9 @@ export const runtime = "nodejs";
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(req: Request) {
-  console.log("[webhook] >>> HANDLER ENTERED");
   try {
     const signature = req.headers.get("x-square-hmacsha256-signature");
     const rawBody = await req.text();
-
-    console.log("[webhook] received — signature present:", !!signature, "| body length:", rawBody.length);
 
     if (!signature) {
       console.error("[webhook] missing x-square-hmacsha256-signature header");
@@ -30,12 +27,6 @@ export async function POST(req: Request) {
     hmac.update(notificationUrl + rawBody);
     const expectedSignature = hmac.digest("base64");
 
-    console.log("[webhook] signature check:", {
-      received: signature,
-      expected: expectedSignature,
-      match: signature === expectedSignature,
-    });
-
     if (signature !== expectedSignature) {
       console.error("[webhook] signature mismatch — check notificationUrl and SQUARE_WEBHOOK_SIGNATURE_KEY");
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
@@ -45,7 +36,6 @@ export async function POST(req: Request) {
     console.log("[webhook] event type:", event.type);
 
     if (event.type !== "payment.updated") {
-      console.log("[webhook] EARLY RETURN — event type not payment.updated, got:", event.type);
       return NextResponse.json({ received: true });
     }
 
@@ -53,7 +43,6 @@ export async function POST(req: Request) {
     console.log("[webhook] payment status:", payment?.status, "| order_id:", payment?.order_id);
 
     if (payment?.status !== "COMPLETED") {
-      console.log("[webhook] EARLY RETURN — payment not COMPLETED, got:", payment?.status);
       return NextResponse.json({ received: true });
     }
 
@@ -93,7 +82,7 @@ export async function POST(req: Request) {
     // Decrement inventory and build email item list
     const { data: items } = await supabaseAdmin
       .from("order_items")
-      .select("*")
+      .select("product_id, quantity")
       .eq("order_id", order.id);
 
     let emailItemsHtml = "";
@@ -102,7 +91,7 @@ export async function POST(req: Request) {
       for (const item of items) {
         const { data: product } = await supabaseAdmin
           .from("products")
-          .select("*")
+          .select("title, price_cents, quantity_available, status")
           .eq("id", item.product_id)
           .single();
 
@@ -119,57 +108,94 @@ export async function POST(req: Request) {
           .eq("id", item.product_id);
 
         emailItemsHtml += `
-          <p>
-            <strong>${product.title}</strong><br/>
-            Quantity: ${item.quantity}<br/>
-            Price: $${(product.price_cents / 100).toFixed(2)}
-          </p>
+          <tr>
+            <td style="padding: 8px 0; border-bottom: 1px solid #eee;">${product.title}</td>
+            <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
+            <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">$${(product.price_cents / 100).toFixed(2)}</td>
+          </tr>
         `;
       }
     }
 
-    // Prefer email stored at checkout time (from our form); fall back to Square's payment object
-    const customerEmail =
-      order.customer_email ??
-      payment.buyer_email_address ??
-      payment.shipping_address?.email_address ??
-      null;
-
     const customerName = order.customer_name ?? null;
+    const customerEmail = order.customer_email ?? payment.buyer_email_address ?? null;
     const customerInstagram = order.customer_instagram ?? null;
 
-    console.log("[webhook] customer — email:", customerEmail ?? "(none)", "| name:", customerName ?? "(none)", "| instagram:", customerInstagram ?? "(none)");
+    console.log("[webhook] customer — name present:", !!customerName, "| email present:", !!customerEmail, "| instagram present:", !!customerInstagram);
 
-    if (customerEmail) {
-      console.log("[webhook] >>> CALLING resend.emails.send() to:", customerEmail);
-      try {
-        const fulfillmentLabel = order.fulfillment_method === "pickup" ? "In-person pickup" : "Delivery ($10 flat)";
+    // Build shipping address block from Square's payment object (only present for delivery)
+    const addr = payment.shipping_address ?? null;
+    const shippingAddressHtml = addr
+      ? `
+        <p style="margin: 2px 0;">${addr.address_line_1 ?? ""}${addr.address_line_2 ? `, ${addr.address_line_2}` : ""}</p>
+        <p style="margin: 2px 0;">${addr.locality ?? ""}, ${addr.administrative_district_level_1 ?? ""} ${addr.postal_code ?? ""}</p>
+      `
+      : `<p style="margin: 2px 0; color: #999;">Not provided</p>`;
 
-        const { data: emailData, error: emailError } = await resend.emails.send({
-          from: "ColdBratPokes <orders@coldbratpokes.com>",
-          to: customerEmail,
-          subject: "Your ColdBratPokes Order Confirmation",
-          html: `
-            <h2>Thank you for your purchase${customerName ? `, ${customerName}` : ""}!</h2>
-            ${emailItemsHtml}
-            <p><strong>Fulfillment:</strong> ${fulfillmentLabel}</p>
-            ${customerInstagram ? `<p><strong>Instagram:</strong> ${customerInstagram}</p>` : ""}
-            <p>We'll be in touch shortly.</p>
-          `,
-        });
+    const fulfillmentLabel =
+      order.fulfillment_method === "pickup"
+        ? "In-person pickup (free)"
+        : "Delivery ($10 flat fee)";
 
-        console.log("[webhook] Resend response — data:", JSON.stringify(emailData), "| error:", JSON.stringify(emailError));
+    try {
+      const { data: emailData, error: emailError } = await resend.emails.send({
+        from: "ColdBratPokes Orders <orders@coldbratpokes.com>",
+        to: "coldbratpokes@gmail.com",
+        subject: `New Order — ${customerName ?? customerEmail ?? "Unknown customer"}`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #222; padding: 24px;">
+            <h2 style="font-size: 22px; margin: 0 0 20px;">New Order Received</h2>
 
-        if (emailError) {
-          console.error("[webhook] Resend error:", emailError);
-        } else {
-          console.log("[webhook] Resend email sent, id:", emailData?.id);
-        }
-      } catch (emailErr) {
-        console.error("[webhook] Resend threw:", emailErr);
+            <h3 style="font-size: 15px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.05em; color: #555;">Customer Info</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+              <tr>
+                <td style="padding: 6px 0; width: 130px; color: #555;">Name</td>
+                <td style="padding: 6px 0;"><strong>${customerName ?? "—"}</strong></td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #555;">Email</td>
+                <td style="padding: 6px 0;"><a href="mailto:${customerEmail ?? ""}" style="color: #222;">${customerEmail ?? "—"}</a></td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #555;">Instagram</td>
+                <td style="padding: 6px 0;">${customerInstagram ?? "—"}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #555;">Fulfillment</td>
+                <td style="padding: 6px 0;">${fulfillmentLabel}</td>
+              </tr>
+              ${order.fulfillment_method !== "pickup" ? `
+              <tr>
+                <td style="padding: 6px 0; color: #555; vertical-align: top;">Ship to</td>
+                <td style="padding: 6px 0;">${shippingAddressHtml}</td>
+              </tr>
+              ` : ""}
+            </table>
+
+            <h3 style="font-size: 15px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.05em; color: #555;">Items Ordered</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+              <thead>
+                <tr style="border-bottom: 2px solid #222;">
+                  <th style="text-align: left; padding-bottom: 8px;">Item</th>
+                  <th style="text-align: center; padding-bottom: 8px;">Qty</th>
+                  <th style="text-align: right; padding-bottom: 8px;">Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${emailItemsHtml}
+              </tbody>
+            </table>
+          </div>
+        `,
+      });
+
+      if (emailError) {
+        console.error("[webhook] Resend error:", emailError);
+      } else {
+        console.log("[webhook] order notification sent, id:", emailData?.id);
       }
-    } else {
-      console.warn("[webhook] no customer email on payment — confirmation email skipped");
+    } catch (emailErr) {
+      console.error("[webhook] Resend threw:", emailErr);
     }
 
     return NextResponse.json({ success: true });
