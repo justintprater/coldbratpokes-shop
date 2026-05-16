@@ -8,11 +8,12 @@ export const runtime = "nodejs";
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(req: Request) {
+  console.log("[webhook] >>> HANDLER ENTERED");
   try {
     const signature = req.headers.get("x-square-hmacsha256-signature");
     const rawBody = await req.text();
 
-    console.log("[webhook] received — signature present:", !!signature);
+    console.log("[webhook] received — signature present:", !!signature, "| body length:", rawBody.length);
 
     if (!signature) {
       console.error("[webhook] missing x-square-hmacsha256-signature header");
@@ -44,6 +45,7 @@ export async function POST(req: Request) {
     console.log("[webhook] event type:", event.type);
 
     if (event.type !== "payment.updated") {
+      console.log("[webhook] EARLY RETURN — event type not payment.updated, got:", event.type);
       return NextResponse.json({ received: true });
     }
 
@@ -51,6 +53,7 @@ export async function POST(req: Request) {
     console.log("[webhook] payment status:", payment?.status, "| order_id:", payment?.order_id);
 
     if (payment?.status !== "COMPLETED") {
+      console.log("[webhook] EARLY RETURN — payment not COMPLETED, got:", payment?.status);
       return NextResponse.json({ received: true });
     }
 
@@ -134,6 +137,7 @@ export async function POST(req: Request) {
     console.log("[webhook] customer email resolved:", customerEmail ?? "(none)");
 
     if (customerEmail) {
+      console.log("[webhook] >>> CALLING resend.emails.send() to:", customerEmail);
       try {
         const { data: emailData, error: emailError } = await resend.emails.send({
           from: "ColdBratPokes <orders@coldbratpokes.com>",
@@ -145,6 +149,8 @@ export async function POST(req: Request) {
             <p>We'll be in touch shortly regarding fulfillment.</p>
           `,
         });
+
+        console.log("[webhook] Resend response — data:", JSON.stringify(emailData), "| error:", JSON.stringify(emailError));
 
         if (emailError) {
           console.error("[webhook] Resend error:", emailError);
