@@ -7,6 +7,8 @@ const SQUARE_BASE =
     ? "https://connect.squareup.com"
     : "https://connect.squareupsandbox.com";
 
+const DELIVERY_FEE_CENTS = 1000;
+
 export async function POST(req: Request) {
   try {
     const locationId = process.env.SQUARE_LOCATION_ID;
@@ -19,7 +21,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const { items, fulfillment = "shipping" } = await req.json();
+    const { items, fulfillment = "shipping", customerInfo } = await req.json();
+
+    console.log("[checkout] fulfillment:", fulfillment, "| customer email:", customerInfo?.email ?? "(none)");
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
@@ -63,6 +67,21 @@ export async function POST(req: Request) {
       });
     }
 
+    // Delivery fee added as an explicit line item so Square charges it
+    if (fulfillment === "shipping") {
+      lineItems.push({
+        name: "Delivery",
+        quantity: "1",
+        base_price_money: {
+          amount: DELIVERY_FEE_CENTS,
+          currency: "USD",
+        },
+      });
+      console.log("[checkout] delivery fee applied: $10.00");
+    } else {
+      console.log("[checkout] pickup selected — no delivery fee");
+    }
+
     console.log("[checkout] env check — SQUARE_ENV:", process.env.SQUARE_ENV ?? "(unset, defaulting to sandbox)", "| token present:", !!process.env.SQUARE_ACCESS_TOKEN, "| locationId:", locationId);
 
     const fulfillments =
@@ -78,7 +97,7 @@ export async function POST(req: Request) {
           ]
         : undefined;
 
-    const paymentLinkPayload = {
+    const paymentLinkPayload: any = {
       idempotency_key: randomUUID(),
       order: {
         location_id: locationId,
@@ -87,8 +106,17 @@ export async function POST(req: Request) {
       },
       checkout_options: {
         redirect_url: `${siteUrl}/thank-you`,
+        // Tell Square to collect a shipping address for delivery orders
+        ask_for_shipping_address: fulfillment === "shipping",
       },
     };
+
+    // Pre-populate buyer email so Square's checkout form starts filled in
+    if (customerInfo?.email) {
+      paymentLinkPayload.pre_populated_data = {
+        buyer_email: customerInfo.email,
+      };
+    }
 
     console.log("[checkout] payment link payload:", JSON.stringify(paymentLinkPayload));
 
@@ -143,6 +171,25 @@ export async function POST(req: Request) {
         { error: "Order insert failed" },
         { status: 500 }
       );
+    }
+
+    // Store customer contact info — requires customer_name/customer_email/customer_instagram
+    // columns on the orders table. Fails gracefully if migration hasn't run yet.
+    if (customerInfo?.email || customerInfo?.name || customerInfo?.instagram) {
+      const { error: customerUpdateError } = await supabaseAdmin
+        .from("orders")
+        .update({
+          customer_name: customerInfo.name ?? null,
+          customer_email: customerInfo.email ?? null,
+          customer_instagram: customerInfo.instagram ?? null,
+        })
+        .eq("id", orderId);
+
+      if (customerUpdateError) {
+        console.error("[checkout] customer info update failed (run Supabase migration?):", customerUpdateError.message);
+      } else {
+        console.log("[checkout] customer info stored — name:", customerInfo.name, "| email:", customerInfo.email, "| instagram:", customerInfo.instagram);
+      }
     }
 
     const orderItemsInsert = [];

@@ -16,13 +16,30 @@ type Product = {
   product_images?: { url: string | null }[] | null;
 };
 
+const DELIVERY_FEE_CENTS = 1000;
+
+const inputStyle: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  padding: "8px 10px",
+  marginBottom: 10,
+  background: "var(--card, #1a1a1a)",
+  border: "1px solid var(--border, #333)",
+  color: "inherit",
+  borderRadius: 6,
+  fontSize: 14,
+  boxSizing: "border-box",
+};
+
 export default function CartPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<Record<string, Product>>({});
   const [loading, setLoading] = useState(false);
-  const [fulfillment, setFulfillment] = useState<"shipping" | "pickup">(
-    "shipping"
-  );
+  const [fulfillment, setFulfillment] = useState<"shipping" | "pickup">("shipping");
+
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [instagram, setInstagram] = useState("");
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem("cart") || "[]");
@@ -92,6 +109,11 @@ export default function CartPage() {
   async function handleCheckout() {
     if (cart.length === 0) return;
 
+    if (!name.trim() || !email.trim() || !instagram.trim()) {
+      alert("Please fill in your name, email, and Instagram handle before checking out.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -101,6 +123,11 @@ export default function CartPage() {
         body: JSON.stringify({
           items: cart,
           fulfillment,
+          customerInfo: {
+            name: name.trim(),
+            email: email.trim(),
+            instagram: instagram.trim(),
+          },
         }),
       });
 
@@ -123,11 +150,14 @@ export default function CartPage() {
     }
   }
 
-  const total = cart.reduce((sum, item) => {
+  const itemsTotal = cart.reduce((sum, item) => {
     const product = products[item.productId];
     if (!product) return sum;
     return sum + product.price_cents * item.quantity;
   }, 0);
+
+  const deliveryFee = fulfillment === "shipping" ? DELIVERY_FEE_CENTS : 0;
+  const total = itemsTotal + deliveryFee;
 
   return (
     <main className="container">
@@ -194,30 +224,71 @@ export default function CartPage() {
 
           <hr style={{ margin: "24px 0" }} />
 
+          {/* Contact info — required for all orders */}
+          <div style={{ marginBottom: 20 }}>
+            <p style={{ fontWeight: 600, marginBottom: 10 }}>Your info</p>
+            <input
+              style={inputStyle}
+              type="text"
+              placeholder="Full name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <input
+              style={inputStyle}
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <input
+              style={inputStyle}
+              type="text"
+              placeholder="Instagram handle (e.g. @yourhandle)"
+              value={instagram}
+              onChange={(e) => setInstagram(e.target.value)}
+            />
+          </div>
+
+          {/* Fulfillment method */}
           <div style={{ marginBottom: 16 }}>
-            <label>
+            <p style={{ fontWeight: 600, marginBottom: 10 }}>Fulfillment</p>
+            <label style={{ display: "block", marginBottom: 6 }}>
               <input
                 type="radio"
                 checked={fulfillment === "shipping"}
                 onChange={() => setFulfillment("shipping")}
+                style={{ marginRight: 8 }}
               />
-              Ship to me ($10 flat)
+              Delivery — $10 flat fee (address collected at checkout)
             </label>
-
-            <br />
-
-            <label>
+            <label style={{ display: "block" }}>
               <input
                 type="radio"
                 checked={fulfillment === "pickup"}
                 onChange={() => setFulfillment("pickup")}
+                style={{ marginRight: 8 }}
               />
               In-person pickup (free)
             </label>
           </div>
 
+          {/* Order total */}
           <div style={{ marginBottom: 16 }}>
-            <strong>Total: ${(total / 100).toFixed(2)}</strong>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span>Items</span>
+              <span>${(itemsTotal / 100).toFixed(2)}</span>
+            </div>
+            {fulfillment === "shipping" && (
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, opacity: 0.7 }}>
+                <span>Delivery fee</span>
+                <span>$10.00</span>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, marginTop: 8 }}>
+              <span>Total</span>
+              <span>${(total / 100).toFixed(2)}</span>
+            </div>
           </div>
 
           <button

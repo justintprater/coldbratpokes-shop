@@ -128,25 +128,33 @@ export async function POST(req: Request) {
       }
     }
 
-    // Send confirmation email — failures are logged but don't fail the webhook
+    // Prefer email stored at checkout time (from our form); fall back to Square's payment object
     const customerEmail =
+      order.customer_email ??
       payment.buyer_email_address ??
       payment.shipping_address?.email_address ??
       null;
 
-    console.log("[webhook] customer email resolved:", customerEmail ?? "(none)");
+    const customerName = order.customer_name ?? null;
+    const customerInstagram = order.customer_instagram ?? null;
+
+    console.log("[webhook] customer — email:", customerEmail ?? "(none)", "| name:", customerName ?? "(none)", "| instagram:", customerInstagram ?? "(none)");
 
     if (customerEmail) {
       console.log("[webhook] >>> CALLING resend.emails.send() to:", customerEmail);
       try {
+        const fulfillmentLabel = order.fulfillment_method === "pickup" ? "In-person pickup" : "Delivery ($10 flat)";
+
         const { data: emailData, error: emailError } = await resend.emails.send({
           from: "ColdBratPokes <orders@coldbratpokes.com>",
           to: customerEmail,
           subject: "Your ColdBratPokes Order Confirmation",
           html: `
-            <h2>Thank you for your purchase!</h2>
+            <h2>Thank you for your purchase${customerName ? `, ${customerName}` : ""}!</h2>
             ${emailItemsHtml}
-            <p>We'll be in touch shortly regarding fulfillment.</p>
+            <p><strong>Fulfillment:</strong> ${fulfillmentLabel}</p>
+            ${customerInstagram ? `<p><strong>Instagram:</strong> ${customerInstagram}</p>` : ""}
+            <p>We'll be in touch shortly.</p>
           `,
         });
 
