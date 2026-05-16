@@ -66,14 +66,8 @@ export async function POST(req: Request) {
     console.log("[checkout] env check — SQUARE_ENV:", process.env.SQUARE_ENV ?? "(unset, defaulting to sandbox)", "| token present:", !!process.env.SQUARE_ACCESS_TOKEN, "| locationId:", locationId);
 
     const fulfillments =
-      fulfillment === "shipping"
+      fulfillment === "pickup"
         ? [
-            {
-              type: "SHIPMENT",
-              state: "PROPOSED",
-            },
-          ]
-        : [
             {
               type: "PICKUP",
               state: "PROPOSED",
@@ -81,14 +75,15 @@ export async function POST(req: Request) {
                 schedule_type: "ASAP",
               },
             },
-          ];
+          ]
+        : undefined;
 
     const paymentLinkPayload = {
       idempotency_key: randomUUID(),
       order: {
         location_id: locationId,
         line_items: lineItems,
-        fulfillments,
+        ...(fulfillments ? { fulfillments } : {}),
       },
       checkout_options: {
         redirect_url: `${siteUrl}/thank-you`,
