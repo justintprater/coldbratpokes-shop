@@ -9,8 +9,10 @@ export type AdminProduct = {
   price_cents: number;
   quantity_available: number;
   status: "available" | "hidden" | "sold" | "reserved";
-  product_images: { url: string | null }[] | null;
+  product_images: { id: string; url: string | null; sort_order: number }[] | null;
 };
+
+type ImageRecord = { id: string; url: string; sort_order: number };
 
 const field: React.CSSProperties = {
   display: "block",
@@ -66,12 +68,17 @@ function ProductRow({
   const [saving, setSaving]     = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  const [imageFile, setImageFile]       = useState<File | null>(null);
-  const [uploadingImg, setUploadingImg] = useState(false);
-  const [imgFeedback, setImgFeedback]   = useState<string | null>(null);
-  const [imgUrl, setImgUrl]             = useState(
-    product.product_images?.[0]?.url ?? null
+  // Image management
+  const [images, setImages] = useState<ImageRecord[]>(
+    [...(product.product_images ?? [])]
+      .filter((img): img is ImageRecord => Boolean(img.url))
+      .sort((a, b) => a.sort_order - b.sort_order)
   );
+  const [addImageFile, setAddImageFile]   = useState<File | null>(null);
+  const [addingImage, setAddingImage]     = useState(false);
+  const [imgFeedback, setImgFeedback]     = useState<string | null>(null);
+  const [deletingId, setDeletingId]       = useState<string | null>(null);
+  const [settingPrimaryId, setSettingPrimaryId] = useState<string | null>(null);
 
   async function handleSave() {
     setSaving(true);
@@ -108,15 +115,20 @@ function ProductRow({
     setSaving(false);
   }
 
-  async function handleImageUpload() {
-    if (!imageFile) return;
-    setUploadingImg(true);
+  function flashImgFeedback(msg: string) {
+    setImgFeedback(msg);
+    setTimeout(() => setImgFeedback(null), 3500);
+  }
+
+  async function handleAddImage() {
+    if (!addImageFile) return;
+    setAddingImage(true);
     setImgFeedback(null);
 
     const formData = new FormData();
     formData.append("password", password);
     formData.append("product_id", product.id);
-    formData.append("image", imageFile);
+    formData.append("image", addImageFile);
 
     const res = await fetch("/api/admin/upload-image", {
       method: "POST",
@@ -125,17 +137,63 @@ function ProductRow({
 
     if (res.ok) {
       const data = await res.json();
-      setImgUrl(data.url);
-      setImageFile(null);
-      setImgFeedback("Image updated ✓");
-      setTimeout(() => setImgFeedback(null), 3000);
+      setImages((prev) => [
+        ...prev,
+        { id: data.id, url: data.url, sort_order: data.sort_order },
+      ]);
+      setAddImageFile(null);
+      flashImgFeedback("Image added ✓");
     } else {
-      setImgFeedback("Upload failed — try again");
+      flashImgFeedback("Upload failed — try again");
     }
-    setUploadingImg(false);
+    setAddingImage(false);
   }
 
-  const statusColor   = STATUS_COLOR[status] ?? "#666";
+  async function handleDeleteImage(imageId: string) {
+    if (!confirm("Delete this image?")) return;
+    setDeletingId(imageId);
+
+    const res = await fetch("/api/admin/delete-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password, image_id: imageId }),
+    });
+
+    if (res.ok) {
+      setImages((prev) => prev.filter((img) => img.id !== imageId));
+      flashImgFeedback("Image deleted ✓");
+    } else {
+      flashImgFeedback("Delete failed — try again");
+    }
+    setDeletingId(null);
+  }
+
+  async function handleSetPrimary(imageId: string) {
+    setSettingPrimaryId(imageId);
+
+    const res = await fetch("/api/admin/set-primary-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password, image_id: imageId, product_id: product.id }),
+    });
+
+    if (res.ok) {
+      setImages((prev) => {
+        const target = prev.find((img) => img.id === imageId)!;
+        const others = prev.filter((img) => img.id !== imageId);
+        return [
+          { ...target, sort_order: 0 },
+          ...others.map((img, i) => ({ ...img, sort_order: i + 1 })),
+        ];
+      });
+      flashImgFeedback("Primary image updated ✓");
+    } else {
+      flashImgFeedback("Failed — try again");
+    }
+    setSettingPrimaryId(null);
+  }
+
+  const statusColor = STATUS_COLOR[status] ?? "#666";
   const originalColor = STATUS_COLOR[product.status] ?? "#666";
 
   return (
@@ -150,11 +208,11 @@ function ProductRow({
         gap: 16,
       }}
     >
-      {/* Thumbnail column */}
+      {/* Primary thumbnail + status */}
       <div style={{ flexShrink: 0, width: 92, display: "flex", flexDirection: "column", gap: 8 }}>
-        {imgUrl ? (
+        {images[0] ? (
           <img
-            src={imgUrl}
+            src={images[0].url}
             alt={title}
             style={{ width: 92, height: 92, objectFit: "cover", borderRadius: 8, display: "block" }}
           />
@@ -233,40 +291,99 @@ function ProductRow({
           </div>
         </div>
 
-        {/* Image replacement */}
+        {/* ── Image management ── */}
         <div>
-          <span style={label}>Replace image</span>
+          <span style={label}>Images ({images.length})</span>
+
+          {/* Existing image thumbnails */}
+          {images.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+              {images.map((img, i) => (
+                <div key={img.id} style={{ position: "relative", width: 76, flexShrink: 0 }}>
+                  <img
+                    src={img.url}
+                    alt={`Image ${i + 1}`}
+                    style={{
+                      width: 76, height: 76, objectFit: "cover", borderRadius: 7, display: "block",
+                      border: i === 0 ? "2px solid #ff4fd8" : "2px solid #2e2e2e",
+                    }}
+                  />
+                  {/* Primary badge */}
+                  {i === 0 && (
+                    <div style={{
+                      position: "absolute", top: 3, left: 3,
+                      background: "rgba(255,79,216,0.85)", borderRadius: 4,
+                      fontSize: 9, color: "#fff", padding: "1px 4px", fontWeight: 700,
+                      letterSpacing: "0.04em",
+                    }}>
+                      PRIMARY
+                    </div>
+                  )}
+                  {/* Controls below thumbnail */}
+                  <div style={{ display: "flex", gap: 3, marginTop: 4 }}>
+                    {i !== 0 && (
+                      <button
+                        onClick={() => handleSetPrimary(img.id)}
+                        disabled={settingPrimaryId === img.id}
+                        title="Set as primary"
+                        style={{
+                          flex: 1, fontSize: 10, padding: "2px 0",
+                          background: "#1a1a1a", border: "1px solid #333",
+                          color: "#aaa", borderRadius: 4, cursor: "pointer",
+                        }}
+                      >
+                        {settingPrimaryId === img.id ? "…" : "★ Set"}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDeleteImage(img.id)}
+                      disabled={deletingId === img.id}
+                      title="Delete image"
+                      style={{
+                        flex: 1, fontSize: 10, padding: "2px 0",
+                        background: "#1a1a1a", border: "1px solid #333",
+                        color: "#ff6b6b", borderRadius: 4, cursor: "pointer",
+                      }}
+                    >
+                      {deletingId === img.id ? "…" : "✕ Del"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add image */}
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
-              style={{ fontSize: 12, color: "#888", flex: 1 }}
+              onChange={(e) => setAddImageFile(e.target.files?.[0] ?? null)}
+              style={{ fontSize: 12, color: "#888", flex: 1, minWidth: 0 }}
             />
-            {imageFile && (
+            {addImageFile && (
               <button
-                onClick={handleImageUpload}
-                disabled={uploadingImg}
+                onClick={handleAddImage}
+                disabled={addingImage}
                 style={{
                   padding: "5px 14px", fontSize: 12, background: "#1a1a1a",
                   border: "1px solid #444", color: "#ccc", borderRadius: 6, cursor: "pointer",
                   whiteSpace: "nowrap",
                 }}
               >
-                {uploadingImg ? "Uploading…" : "Upload"}
+                {addingImage ? "Uploading…" : "Add image"}
               </button>
             )}
-            {imgFeedback && (
-              <span
-                style={{
-                  fontSize: 12,
-                  color: imgFeedback.includes("failed") ? "#ff6b6b" : "#4caf50",
-                }}
-              >
-                {imgFeedback}
-              </span>
-            )}
           </div>
+
+          {imgFeedback && (
+            <p style={{
+              marginTop: 6, fontSize: 12,
+              color: imgFeedback.includes("failed") || imgFeedback.includes("Failed") ? "#ff6b6b" : "#4caf50",
+            }}>
+              {imgFeedback}
+            </p>
+          )}
         </div>
 
         {/* Save row */}

@@ -245,7 +245,7 @@ export default function AdminPage() {
   const [newDesc, setNewDesc]             = useState("");
   const [newPrice, setNewPrice]           = useState("");
   const [newQty, setNewQty]               = useState("1");
-  const [newImage, setNewImage]           = useState<File | null>(null);
+  const [newImages, setNewImages]         = useState<File[]>([]);
   const [creating, setCreating]           = useState(false);
   const [createMsg, setCreateMsg]         = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -274,7 +274,7 @@ export default function AdminPage() {
     setLoadingProducts(true);
     const { data, error } = await supabase
       .from("products")
-      .select("id, title, description, price_cents, quantity_available, status, product_images(url)")
+      .select("id, title, description, price_cents, quantity_available, status, product_images(id, url, sort_order)")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -308,8 +308,8 @@ export default function AdminPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!newImage) {
-      setCreateMsg({ ok: false, text: "Please select an image." });
+    if (newImages.length === 0) {
+      setCreateMsg({ ok: false, text: "Please select at least one image." });
       return;
     }
 
@@ -322,7 +322,9 @@ export default function AdminPage() {
     formData.append("description", newDesc);
     formData.append("price", newPrice);
     formData.append("quantity", newQty);
-    formData.append("image", newImage);
+    for (const img of newImages) {
+      formData.append("image", img);
+    }
 
     const res = await fetch("/api/admin/create-product", {
       method: "POST",
@@ -335,7 +337,7 @@ export default function AdminPage() {
       setNewDesc("");
       setNewPrice("");
       setNewQty("1");
-      setNewImage(null);
+      setNewImages([]);
       createFormRef.current?.reset();
       await loadProducts();
     } else {
@@ -519,14 +521,24 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <span style={label}>Product image *</span>
+          <span style={label}>Product images * (select one or more)</span>
           <input
             type="file"
             accept="image/*"
+            multiple
             required
-            onChange={(e) => setNewImage(e.target.files?.[0] ?? null)}
-            style={{ display: "block", marginBottom: 18, fontSize: 13, color: "#aaa" }}
+            onChange={(e) => setNewImages(Array.from(e.target.files ?? []))}
+            style={{ display: "block", marginBottom: 4, fontSize: 13, color: "#aaa" }}
           />
+          {newImages.length > 1 && (
+            <p style={{ fontSize: 12, color: "#666", marginBottom: 14 }}>
+              {newImages.length} images selected — first will be the primary thumbnail
+            </p>
+          )}
+          {newImages.length === 1 && (
+            <p style={{ fontSize: 12, color: "#666", marginBottom: 14 }}>1 image selected</p>
+          )}
+          {newImages.length === 0 && <div style={{ marginBottom: 14 }} />}
 
           <button
             type="submit"

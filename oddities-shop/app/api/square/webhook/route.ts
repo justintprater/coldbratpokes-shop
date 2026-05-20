@@ -270,7 +270,7 @@ export async function POST(req: Request) {
             <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto; color: #222; padding: 24px;">
               <h2 style="font-size: 22px; margin: 0 0 12px;">Order confirmed!</h2>
               <p style="margin: 0 0 24px; color: #444; line-height: 1.6;">
-                ${customerGreeting} Thank you for your order — we got it and we're on it.
+                ${customerGreeting} Thank you so much! I got your order and you should be getting it soon 🖤
               </p>
 
               <h3 style="font-size: 14px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; color: #666;">What you ordered</h3>
@@ -307,7 +307,7 @@ export async function POST(req: Request) {
               </p>` : "<br/>"}
 
               <p style="margin: 0; font-size: 13px; color: #888; line-height: 1.6;">
-                Questions? DM us on Instagram or reply to this email.<br/>
+                If you have any questions at all, DM me on Instagram @coldbratpokes.<br/>
                 — ColdBratPokes 🖤
               </p>
             </div>

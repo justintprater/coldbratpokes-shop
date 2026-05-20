@@ -24,7 +24,7 @@ export default async function Home() {
       price_cents,
       status,
       quantity_available,
-      product_images ( url )
+      product_images ( url, sort_order )
     `
     )
     .neq("status", "hidden")

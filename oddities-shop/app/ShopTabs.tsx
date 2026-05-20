@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 
-type ProductImage = { url: string | null };
+type ProductImage = { url: string | null; sort_order: number };
 
 export type ProductRow = {
   id: string;
@@ -59,7 +59,7 @@ export default function ShopTabs({ products }: { products: ProductRow[] }) {
         ) : (
           <div className="grid">
             {filtered.map((p) => {
-              const imgUrl = p.product_images?.[0]?.url ?? null;
+              const imgUrl = [...(p.product_images ?? [])].sort((a, b) => a.sort_order - b.sort_order)[0]?.url ?? null;
               const price = (p.price_cents / 100).toFixed(2);
 
               const isSold = p.quantity_available <= 0;

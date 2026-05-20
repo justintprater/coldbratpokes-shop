@@ -3,8 +3,9 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 import BuyButton from "./BuyButton";
+import ImageGallery from "./ImageGallery";
 
-type ProductImage = { url: string | null };
+type ProductImage = { url: string | null; sort_order: number };
 
 type ProductRow = {
   id: string;
@@ -38,7 +39,7 @@ export default async function ProductPage({
       status,
       description,
       quantity_available,
-      product_images ( url )
+      product_images ( url, sort_order )
     `
     )
     .eq("id", id)
@@ -50,10 +51,10 @@ export default async function ProductPage({
 
   const product = data as ProductRow;
   const price = (product.price_cents / 100).toFixed(2);
-  const images = (product.product_images ?? [])
+  const images = [...(product.product_images ?? [])]
+    .sort((a, b) => a.sort_order - b.sort_order)
     .map((x) => x.url)
     .filter((u): u is string => Boolean(u));
-  const mainImg = images[0];
 
   const isSold = product.quantity_available <= 0;
   const isReserved = product.status === "reserved";
@@ -64,12 +65,7 @@ export default async function ProductPage({
 
       <div className="productLayout" style={{ marginTop: 18 }}>
         <div className="productMedia">
-          {mainImg ? (
-            <img src={mainImg} alt={product.title} />
-          ) : (
-            <div>No image yet</div>
-          )}
-
+          <ImageGallery images={images} title={product.title} />
           {isSold && <div className="soldOverlay">SOLD</div>}
           {isReserved && !isSold && (
             <div className="soldOverlay">RESERVED</div>
@@ -93,6 +89,10 @@ export default async function ProductPage({
           </div>
 
           <div className="productPrice">${price}</div>
+
+          {product.description && (
+            <p className="productDesc">{product.description}</p>
+          )}
 
           {!isSold && !isReserved ? (
             <BuyButton productId={product.id} />

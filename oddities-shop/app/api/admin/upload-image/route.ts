@@ -33,23 +33,35 @@ export async function POST(req: Request) {
       .from("product-images")
       .getPublicUrl(filePath);
 
-    // Remove existing primary image then insert the new one
-    await supabaseAdmin
+    // Find next sort_order (max existing + 1, or 0 if no images yet)
+    const { data: existing } = await supabaseAdmin
       .from("product_images")
-      .delete()
+      .select("sort_order")
       .eq("product_id", productId)
-      .eq("sort_order", 0);
+      .order("sort_order", { ascending: false })
+      .limit(1);
 
-    const { error: insertError } = await supabaseAdmin
+    const nextSortOrder = existing && existing.length > 0
+      ? (existing[0].sort_order as number) + 1
+      : 0;
+
+    const { data: inserted, error: insertError } = await supabaseAdmin
       .from("product_images")
-      .insert({ product_id: productId, url: publicUrlData.publicUrl, sort_order: 0 });
+      .insert({ product_id: productId, url: publicUrlData.publicUrl, sort_order: nextSortOrder })
+      .select("id, sort_order")
+      .single();
 
-    if (insertError) {
+    if (insertError || !inserted) {
       console.error("[upload-image] insert error:", insertError);
       return NextResponse.json({ error: "Failed to save image record" }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, url: publicUrlData.publicUrl });
+    return NextResponse.json({
+      success: true,
+      url: publicUrlData.publicUrl,
+      id: (inserted as { id: string; sort_order: number }).id,
+      sort_order: (inserted as { id: string; sort_order: number }).sort_order,
+    });
   } catch (err) {
     console.error("[upload-image] unhandled error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });

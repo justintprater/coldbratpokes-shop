@@ -22,9 +22,9 @@ export async function POST(req: Request) {
     const price = Number(formData.get("price"));
     const quantityRaw = formData.get("quantity");
     const quantity = quantityRaw ? Math.max(1, Number(quantityRaw)) : 1;
-    const image = formData.get("image") as File;
+    const images = formData.getAll("image") as File[];
 
-    if (!title || !price || !image) {
+    if (!title || !price || images.length === 0) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
@@ -46,29 +46,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Failed to create product" }, { status: 500 });
     }
 
-    const fileExt = image.name.split(".").pop();
-    const filePath = `${product.id}/${crypto.randomUUID()}.${fileExt}`;
+    // Upload all images in order; first = sort_order 0 (primary)
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      const fileExt = image.name.split(".").pop();
+      const filePath = `${product.id}/${crypto.randomUUID()}.${fileExt}`;
 
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from("product-images")
-      .upload(filePath, image, { contentType: image.type, upsert: false });
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from("product-images")
+        .upload(filePath, image, { contentType: image.type, upsert: false });
 
-    if (uploadError) {
-      console.error("[create-product] storage error:", uploadError);
-      return NextResponse.json({ error: "Image upload failed" }, { status: 500 });
-    }
+      if (uploadError) {
+        console.error(`[create-product] storage error for image ${i}:`, uploadError);
+        // Don't fail the whole product — partial images are OK
+        continue;
+      }
 
-    const { data: publicUrlData } = supabaseAdmin.storage
-      .from("product-images")
-      .getPublicUrl(filePath);
+      const { data: publicUrlData } = supabaseAdmin.storage
+        .from("product-images")
+        .getPublicUrl(filePath);
 
-    const { error: imageInsertError } = await supabaseAdmin
-      .from("product_images")
-      .insert({ product_id: product.id, url: publicUrlData.publicUrl, sort_order: 0 });
+      const { error: imageInsertError } = await supabaseAdmin
+        .from("product_images")
+        .insert({ product_id: product.id, url: publicUrlData.publicUrl, sort_order: i });
 
-    if (imageInsertError) {
-      console.error("[create-product] image row insert error:", imageInsertError);
-      return NextResponse.json({ error: "Failed to save image" }, { status: 500 });
+      if (imageInsertError) {
+        console.error(`[create-product] image row insert error for image ${i}:`, imageInsertError);
+      }
     }
 
     return NextResponse.json({ success: true });
