@@ -5,14 +5,11 @@ import { Resend } from "resend";
 
 export const runtime = "nodejs";
 
-<<<<<<< HEAD
 const SQUARE_BASE =
   process.env.SQUARE_ENV === "production"
     ? "https://connect.squareup.com"
     : "https://connect.squareupsandbox.com";
 
-=======
->>>>>>> 99cd63b126b3f9bd24cbde79fc6b404b773c651a
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(req: Request) {
@@ -25,12 +22,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing signature" }, { status: 401 });
     }
 
-<<<<<<< HEAD
     const notificationUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/api/square/webhook`;
-=======
-    const notificationUrl =
-      "https://coldbratpokes-shop.vercel.app/api/square/webhook";
->>>>>>> 99cd63b126b3f9bd24cbde79fc6b404b773c651a
 
     const hmac = crypto.createHmac(
       "sha256",
@@ -135,7 +127,6 @@ export async function POST(req: Request) {
 
     console.log("[webhook] customer — name present:", !!customerName, "| email present:", !!customerEmail, "| instagram present:", !!customerInstagram);
 
-<<<<<<< HEAD
     // Shipping address: Square stores it on the Order object when ask_for_shipping_address is used,
     // not on the Payment object. Try payment first (forward-compat), then fetch the order.
     let addr: Record<string, string | undefined> | null = payment.shipping_address ?? null;
@@ -177,10 +168,6 @@ export async function POST(req: Request) {
       }
     }
 
-=======
-    // Build shipping address block from Square's payment object (only present for delivery)
-    const addr = payment.shipping_address ?? null;
->>>>>>> 99cd63b126b3f9bd24cbde79fc6b404b773c651a
     const shippingAddressHtml = addr
       ? `
         <p style="margin: 2px 0;">${addr.address_line_1 ?? ""}${addr.address_line_2 ? `, ${addr.address_line_2}` : ""}</p>
