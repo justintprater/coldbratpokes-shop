@@ -139,9 +139,6 @@ export default function CartPage() {
         return;
       }
 
-      localStorage.removeItem("cart");
-      window.dispatchEvent(new Event("storage"));
-
       window.location.href = json.checkoutUrl;
     } catch (err) {
       console.error(err);

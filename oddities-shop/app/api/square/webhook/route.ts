@@ -64,10 +64,11 @@ export async function POST(req: Request) {
 
     if (!order) {
       console.error("[webhook] order not found for square_order_id:", squareOrderId);
-      return NextResponse.json({ received: true });
+      // 503 so Square retries — the checkout API may not have written the row yet
+      return NextResponse.json({ error: "Order not found" }, { status: 503 });
     }
 
-    if (order.status === "paid") {
+    if (order.status === "paid" || order.status === "fulfilled") {
       console.log("[webhook] order already paid, skipping:", order.id);
       return NextResponse.json({ received: true });
     }
@@ -90,6 +91,7 @@ export async function POST(req: Request) {
       .eq("order_id", order.id);
 
     let emailItemsHtml = "";
+    let itemsTotal = 0;
 
     if (items && items.length > 0) {
       for (const item of items) {
@@ -101,7 +103,8 @@ export async function POST(req: Request) {
 
         if (!product) continue;
 
-        const newQty = product.quantity_available - item.quantity;
+        const newQty = Math.max(0, product.quantity_available - item.quantity);
+        itemsTotal += product.price_cents * item.quantity;
 
         await supabaseAdmin
           .from("products")
@@ -120,6 +123,9 @@ export async function POST(req: Request) {
         `;
       }
     }
+
+    const deliveryFeeCents = order.fulfillment_method === "shipping" ? 1000 : 0;
+    const orderTotalCents = itemsTotal + deliveryFeeCents;
 
     const customerName = order.customer_name ?? null;
     const customerEmail = order.customer_email ?? payment.buyer_email_address ?? null;
@@ -226,6 +232,17 @@ export async function POST(req: Request) {
               </thead>
               <tbody>
                 ${emailItemsHtml}
+                ${deliveryFeeCents > 0 ? `
+                <tr>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #555;">Delivery fee</td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: center;"></td>
+                  <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">$10.00</td>
+                </tr>` : ""}
+                <tr>
+                  <td style="padding: 8px 0; font-weight: 700;">Total</td>
+                  <td></td>
+                  <td style="padding: 8px 0; font-weight: 700; text-align: right;">$${(orderTotalCents / 100).toFixed(2)}</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -239,6 +256,72 @@ export async function POST(req: Request) {
       }
     } catch (emailErr) {
       console.error("[webhook] Resend threw:", emailErr);
+    }
+
+    // Customer confirmation email
+    if (customerEmail) {
+      try {
+        const customerGreeting = customerName ? `Hi ${customerName.split(" ")[0]},` : "Hi there,";
+        const { error: customerEmailError } = await resend.emails.send({
+          from: "ColdBratPokes <orders@coldbratpokes.com>",
+          to: customerEmail,
+          subject: "Your ColdBratPokes order is confirmed 🖤",
+          html: `
+            <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto; color: #222; padding: 24px;">
+              <h2 style="font-size: 22px; margin: 0 0 12px;">Order confirmed!</h2>
+              <p style="margin: 0 0 24px; color: #444; line-height: 1.6;">
+                ${customerGreeting} Thank you for your order — we got it and we're on it.
+              </p>
+
+              <h3 style="font-size: 14px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; color: #666;">What you ordered</h3>
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+                <thead>
+                  <tr style="border-bottom: 2px solid #222;">
+                    <th style="text-align: left; padding-bottom: 8px; font-size: 13px;">Item</th>
+                    <th style="text-align: center; padding-bottom: 8px; font-size: 13px;">Qty</th>
+                    <th style="text-align: right; padding-bottom: 8px; font-size: 13px;">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${emailItemsHtml}
+                  ${deliveryFeeCents > 0 ? `
+                  <tr>
+                    <td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #555;">Delivery fee</td>
+                    <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: center;"></td>
+                    <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">$10.00</td>
+                  </tr>` : ""}
+                  <tr>
+                    <td style="padding: 8px 0; font-weight: 700;">Total</td>
+                    <td></td>
+                    <td style="padding: 8px 0; font-weight: 700; text-align: right;">$${(orderTotalCents / 100).toFixed(2)}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p style="margin: 0 0 6px; font-size: 14px; color: #444;">
+                <strong>Fulfillment:</strong> ${fulfillmentLabel}
+              </p>
+              ${addr ? `
+              <p style="margin: 0 0 24px; font-size: 14px; color: #444;">
+                <strong>Ship to:</strong> ${addr.address_line_1 ?? ""}${addr.address_line_2 ? `, ${addr.address_line_2}` : ""}, ${addr.locality ?? ""}, ${addr.administrative_district_level_1 ?? ""} ${addr.postal_code ?? ""}
+              </p>` : "<br/>"}
+
+              <p style="margin: 0; font-size: 13px; color: #888; line-height: 1.6;">
+                Questions? DM us on Instagram or reply to this email.<br/>
+                — ColdBratPokes 🖤
+              </p>
+            </div>
+          `,
+        });
+
+        if (customerEmailError) {
+          console.error("[webhook] customer email error:", customerEmailError);
+        } else {
+          console.log("[webhook] customer confirmation sent to:", customerEmail);
+        }
+      } catch (customerEmailErr) {
+        console.error("[webhook] customer email threw:", customerEmailErr);
+      }
     }
 
     return NextResponse.json({ success: true });
