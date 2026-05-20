@@ -1,35 +1,39 @@
 import { useState } from "react";
 
-const ADMIN_UPLOAD_PASSWORD = "SpookiPunkinTiny1212";
-
 export default function UploadPortalPage() {
   const [password, setPassword] = useState("");
   const [authorized, setAuthorized] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-async function handleSubmit(e) {
-  e.preventDefault();
-  setLoading(true);
-  setMessage("");
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setMessage("");
 
-  const formData = new FormData(e.currentTarget);
-  formData.append("password", password);
+    const formData = new FormData(e.currentTarget);
+    formData.append("password", password);
 
-  // fire-and-forget
-  fetch("/api/admin/create-product", {
-    method: "POST",
-    body: formData,
-  });
+    const res = await fetch("/api/admin/create-product", {
+      method: "POST",
+      body: formData,
+    });
 
-  // ✅ IMMEDIATE SUCCESS (BACKEND ALREADY PROVEN RELIABLE)
-  setMessage("✅ Product uploaded successfully");
-  e.currentTarget.reset();
-  setLoading(false);
-}
+    if (res.ok) {
+      setMessage("✅ Product uploaded successfully — it is now live in the shop.");
+      e.currentTarget.reset();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        setMessage("❌ Incorrect password — upload was not saved.");
+      } else {
+        setMessage(`❌ Upload failed: ${data.error ?? "Unknown error"}`);
+      }
+    }
 
+    setLoading(false);
+  }
 
-  // 🔐 PASSWORD GATE
   if (!authorized) {
     return (
       <div style={{ padding: 40, maxWidth: 400 }}>
@@ -40,25 +44,17 @@ async function handleSubmit(e) {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") setAuthorized(true); }}
           style={{ width: "100%", padding: 8, marginBottom: 12 }}
         />
 
-        <button
-          onClick={() => {
-            if (password === ADMIN_UPLOAD_PASSWORD) {
-              setAuthorized(true);
-            } else {
-              alert("Incorrect password");
-            }
-          }}
-        >
+        <button onClick={() => setAuthorized(true)}>
           Enter
         </button>
       </div>
     );
   }
 
-  // 📦 UPLOAD FORM
   return (
     <div style={{ padding: 40, maxWidth: 500 }}>
       <h1>Upload Product</h1>
@@ -81,6 +77,7 @@ async function handleSubmit(e) {
           name="price"
           type="number"
           step="0.01"
+          placeholder="Price (e.g. 24.99)"
           required
           style={{ width: "100%", padding: 8, marginBottom: 12 }}
         />

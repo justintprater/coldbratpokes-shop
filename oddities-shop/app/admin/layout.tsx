@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
-const ADMIN_EMAIL = "HER_EMAIL_HERE";
+const ADMIN_EMAIL = "coldbratpokes@gmail.com";
 
 export default function AdminLayout({
   children,
