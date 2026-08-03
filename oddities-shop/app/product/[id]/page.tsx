@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { supabase } from "../../../lib/supabaseClient";
+import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import BuyButton from "./BuyButton";
 import ImageGallery from "./ImageGallery";
 
@@ -29,7 +29,7 @@ export default async function ProductPage({
     return <main className="container">Missing product id.</main>;
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from("products")
     .select(
       `

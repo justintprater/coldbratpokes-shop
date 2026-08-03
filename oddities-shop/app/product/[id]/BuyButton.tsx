@@ -19,6 +19,7 @@ export default function BuyButton({ productId }: { productId: string }) {
     }
 
     localStorage.setItem("cart", JSON.stringify(existing));
+    window.dispatchEvent(new Event("storage"));
     setAdded(true);
 
     setTimeout(() => setAdded(false), 1500);

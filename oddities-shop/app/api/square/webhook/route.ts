@@ -10,7 +10,14 @@ const SQUARE_BASE =
     ? "https://connect.squareup.com"
     : "https://connect.squareupsandbox.com";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let _resend: Resend | null = null;
+function getResend(): Resend {
+  if (!_resend) {
+    if (!process.env.RESEND_API_KEY) throw new Error("Missing RESEND_API_KEY");
+    _resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return _resend;
+}
 
 export async function POST(req: Request) {
   try {
@@ -131,8 +138,6 @@ export async function POST(req: Request) {
     const customerEmail = order.customer_email ?? payment.buyer_email_address ?? null;
     const customerInstagram = order.customer_instagram ?? null;
 
-    console.log("[webhook] customer — name present:", !!customerName, "| email present:", !!customerEmail, "| instagram present:", !!customerInstagram);
-
     // Shipping address: Square stores it on the Order object when ask_for_shipping_address is used,
     // not on the Payment object. Try payment first (forward-compat), then fetch the order.
     let addr: Record<string, string | undefined> | null = payment.shipping_address ?? null;
@@ -145,7 +150,6 @@ export async function POST(req: Request) {
         if (squareOrderRes.ok) {
           const squareOrderData = await squareOrderRes.json();
           addr = squareOrderData.order?.shipping_address ?? null;
-          console.log("[webhook] shipping address from Square order:", !!addr);
         } else {
           console.error("[webhook] Square order fetch failed:", squareOrderRes.status);
         }
@@ -187,7 +191,7 @@ export async function POST(req: Request) {
         : "Delivery ($10 flat fee)";
 
     try {
-      const { data: emailData, error: emailError } = await resend.emails.send({
+      const { data: emailData, error: emailError } = await getResend().emails.send({
         from: "ColdBratPokes Orders <orders@coldbratpokes.com>",
         to: "coldbratpokes@gmail.com",
         subject: `New Order — ${customerName ?? customerEmail ?? "Unknown customer"}`,
@@ -262,7 +266,7 @@ export async function POST(req: Request) {
     if (customerEmail) {
       try {
         const customerGreeting = customerName ? `Hi ${customerName.split(" ")[0]},` : "Hi there,";
-        const { error: customerEmailError } = await resend.emails.send({
+        const { error: customerEmailError } = await getResend().emails.send({
           from: "ColdBratPokes <orders@coldbratpokes.com>",
           to: customerEmail,
           subject: "Your ColdBratPokes order is confirmed 🖤",

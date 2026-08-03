@@ -167,8 +167,6 @@ export async function POST(req: Request) {
 
       if (customerUpdateError) {
         console.error("[checkout] customer info update failed (migration needed?):", customerUpdateError.message);
-      } else {
-        console.log("[checkout] customer info stored for order:", orderId);
       }
     }
 

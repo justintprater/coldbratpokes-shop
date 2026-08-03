@@ -43,6 +43,7 @@ export default function CartPage() {
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem("cart") || "[]");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCart(stored);
   }, []);
 
